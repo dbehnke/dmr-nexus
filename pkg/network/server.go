@@ -2,7 +2,6 @@ package network
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -26,6 +25,8 @@ type Server struct {
 	subACL          *peer.ACL
 	tg1ACL          *peer.ACL
 	tg2ACL          *peer.ACL
+	// started is closed once the UDP listener is bound and ready
+	started chan struct{}
 }
 
 // NewServer creates a new UDP server for MASTER mode
@@ -36,6 +37,7 @@ func NewServer(cfg config.SystemConfig, log *logger.Logger) *Server {
 		peerManager:     peer.NewPeerManager(),
 		pingTimeout:     30 * time.Second, // Default timeout
 		cleanupInterval: 10 * time.Second, // Default cleanup interval
+		started:         make(chan struct{}),
 	}
 }
 
@@ -88,7 +90,15 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to listen on UDP: %w", err)
 	}
 	s.conn = conn
-	defer s.conn.Close()
+	// Signal that the server is ready to accept packets
+	select {
+	case <-s.started: // already closed
+	default:
+		close(s.started)
+	}
+	defer func() {
+		_ = s.conn.Close()
+	}()
 
 	s.log.Info("Server started",
 		logger.String("addr", conn.LocalAddr().String()),
@@ -114,6 +124,29 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 }
 
+// WaitStarted blocks until the server UDP listener is bound or the context is canceled.
+func (s *Server) WaitStarted(ctx context.Context) error {
+	select {
+	case <-s.started:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// Addr returns the local UDP address the server is bound to. It should be called after WaitStarted.
+func (s *Server) Addr() (*net.UDPAddr, error) {
+	if s.conn == nil {
+		return nil, fmt.Errorf("server not started")
+	}
+	addr := s.conn.LocalAddr()
+	udpAddr, ok := addr.(*net.UDPAddr)
+	if !ok {
+		return nil, fmt.Errorf("not a UDP address")
+	}
+	return udpAddr, nil
+}
+
 // receiveLoop continuously receives and processes packets
 func (s *Server) receiveLoop(ctx context.Context) error {
 	buffer := make([]byte, 4096)
@@ -126,7 +159,10 @@ func (s *Server) receiveLoop(ctx context.Context) error {
 		}
 
 		// Set read deadline to allow context checking
-		s.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		if err := s.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			s.log.Warn("Failed to set read deadline", logger.Error(err))
+			continue
+		}
 		n, addr, err := s.conn.ReadFromUDP(buffer)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
@@ -444,24 +480,4 @@ func (s *Server) cleanupLoop(ctx context.Context) error {
 }
 
 // Verify challenge (used during authentication)
-func (s *Server) verifyChallenge(peerID uint32, challenge []byte) bool {
-	// In a real implementation, we would:
-	// 1. Generate our own challenge based on salt + passphrase
-	// 2. Compare with received challenge
-	// For now, just accept all challenges after RPTL
-
-	p := s.peerManager.GetPeer(peerID)
-	if p == nil {
-		return false
-	}
-
-	// Generate expected challenge
-	h := sha256.New()
-	h.Write(p.Salt)
-	h.Write([]byte(s.config.Passphrase))
-	expected := h.Sum(nil)
-
-	// Compare (simplified - in real implementation would need exact match)
-	_ = expected
-	return true
-}
+// verifyChallenge would verify the authentication challenge. Currently unused.

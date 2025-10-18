@@ -46,7 +46,7 @@ func TestOpenBridgeClient_SendDMRD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create server connection: %v", err)
 	}
-	defer serverConn.Close()
+	defer func() { _ = serverConn.Close() }()
 
 	serverPort := serverConn.LocalAddr().(*net.UDPAddr).Port
 
@@ -97,7 +97,9 @@ func TestOpenBridgeClient_SendDMRD(t *testing.T) {
 
 	// Receive on server side
 	buf := make([]byte, 1024)
-	serverConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := serverConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("serverConn.SetReadDeadline() error: %v", err)
+	}
 	n, _, err := serverConn.ReadFromUDP(buf)
 	if err != nil {
 		t.Fatalf("Failed to receive packet: %v", err)
@@ -160,9 +162,7 @@ func TestOpenBridgeClient_ReceiveDMRD(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	go func() {
-		client.Start(ctx)
-	}()
+	go func() { _ = client.Start(ctx) }()
 
 	// Wait for client to be ready
 	time.Sleep(100 * time.Millisecond)
@@ -175,7 +175,7 @@ func TestOpenBridgeClient_ReceiveDMRD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sender connection: %v", err)
 	}
-	defer senderConn.Close()
+	defer func() { _ = senderConn.Close() }()
 
 	// Create and send a DMRD packet with HMAC
 	packet := &protocol.DMRDPacket{
@@ -253,9 +253,7 @@ func TestOpenBridgeClient_RejectInvalidHMAC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	go func() {
-		client.Start(ctx)
-	}()
+	go func() { _ = client.Start(ctx) }()
 
 	// Wait for client to be ready
 	time.Sleep(100 * time.Millisecond)
@@ -268,7 +266,11 @@ func TestOpenBridgeClient_RejectInvalidHMAC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create sender connection: %v", err)
 	}
-	defer senderConn.Close()
+	defer func() {
+		if err := senderConn.Close(); err != nil {
+			t.Logf("senderConn.Close() error: %v", err)
+		}
+	}()
 
 	// Create packet with wrong passphrase
 	packet := &protocol.DMRDPacket{
@@ -342,7 +344,11 @@ func TestOpenBridgeClient_BothSlots(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create server connection: %v", err)
 			}
-			defer serverConn.Close()
+			defer func() {
+				if err := serverConn.Close(); err != nil {
+					t.Logf("serverConn.Close() error: %v", err)
+				}
+			}()
 
 			serverPort := serverConn.LocalAddr().(*net.UDPAddr).Port
 
@@ -363,9 +369,7 @@ func TestOpenBridgeClient_BothSlots(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
-			go func() {
-				client.Start(ctx)
-			}()
+			go func() { _ = client.Start(ctx) }()
 
 			time.Sleep(100 * time.Millisecond)
 
@@ -391,7 +395,9 @@ func TestOpenBridgeClient_BothSlots(t *testing.T) {
 
 			// Try to receive
 			buf := make([]byte, 1024)
-			serverConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			if err := serverConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+				t.Fatalf("serverConn.SetReadDeadline() error: %v", err)
+			}
 			_, _, err = serverConn.ReadFromUDP(buf)
 
 			if tt.shouldSend && err != nil {

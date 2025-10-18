@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -44,7 +45,11 @@ func TestClient_Connect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create mock server: %v", err)
 	}
-	defer serverConn.Close()
+	defer func() {
+		if err := serverConn.Close(); err != nil {
+			t.Logf("serverConn.Close error: %v", err)
+		}
+	}()
 
 	actualServerPort := serverConn.LocalAddr().(*net.UDPAddr).Port
 
@@ -75,7 +80,10 @@ func TestClient_Connect(t *testing.T) {
 
 	// Mock server should receive RPTL packet
 	buffer := make([]byte, 1024)
-	serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Logf("SetReadDeadline error: %v", err)
+		return
+	}
 	n, clientAddr, err := serverConn.ReadFromUDP(buffer)
 	if err != nil {
 		t.Fatalf("Mock server failed to receive packet: %v", err)
@@ -99,10 +107,15 @@ func TestClient_Connect(t *testing.T) {
 	// Send RPTACK response
 	ackPacket := &protocol.RPTACKPacket{RepeaterID: 312000}
 	ackData, _ := ackPacket.Encode()
-	serverConn.WriteToUDP(ackData, clientAddr)
+	if _, err := serverConn.WriteToUDP(ackData, clientAddr); err != nil {
+		t.Fatalf("WriteToUDP error: %v", err)
+	}
 
 	// Wait for RPTK (key exchange)
-	serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Logf("SetReadDeadline error: %v", err)
+		return
+	}
 	n, _, err = serverConn.ReadFromUDP(buffer)
 	if err != nil {
 		t.Fatalf("Failed to receive RPTK: %v", err)
@@ -110,11 +123,21 @@ func TestClient_Connect(t *testing.T) {
 
 	if n >= protocol.RPTKPacketSize && string(buffer[0:4]) == "RPTK" {
 		// Send RPTACK for RPTK
-		serverConn.WriteToUDP(ackData, clientAddr)
+		if _, err := serverConn.WriteToUDP(ackData, clientAddr); err != nil {
+			t.Fatalf("WriteToUDP error: %v", err)
+		}
 	}
 
 	// Wait for RPTC (configuration)
-	serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Logf("SetReadDeadline error: %v", err)
+		if _, addr, err := serverConn.ReadFromUDP(buffer); err == nil && string(buffer[0:4]) == "RPTL" {
+			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+				t.Logf("WriteToUDP error: %v", err)
+				return
+			}
+		}
+	}
 	n, _, err = serverConn.ReadFromUDP(buffer)
 	if err != nil {
 		t.Fatalf("Failed to receive RPTC: %v", err)
@@ -122,7 +145,9 @@ func TestClient_Connect(t *testing.T) {
 
 	if n >= protocol.RPTCPacketSize && string(buffer[0:4]) == "RPTC" {
 		// Send RPTACK for RPTC
-		serverConn.WriteToUDP(ackData, clientAddr)
+		if _, err := serverConn.WriteToUDP(ackData, clientAddr); err != nil {
+			t.Fatalf("WriteToUDP error: %v", err)
+		}
 	}
 
 	// Give client time to process final ACK
@@ -153,7 +178,11 @@ func TestClient_SendDMRD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create mock server: %v", err)
 	}
-	defer serverConn.Close()
+	defer func() {
+		if err := serverConn.Close(); err != nil {
+			t.Logf("serverConn.Close error: %v", err)
+		}
+	}()
 
 	actualServerPort := serverConn.LocalAddr().(*net.UDPAddr).Port
 
@@ -180,28 +209,50 @@ func TestClient_SendDMRD(t *testing.T) {
 		ackData, _ := ackPacket.Encode()
 
 		// Handle RPTL
-		serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Logf("SetReadDeadline error: %v", err)
+			return
+		}
 		if _, addr, err := serverConn.ReadFromUDP(buffer); err == nil && string(buffer[0:4]) == "RPTL" {
-			serverConn.WriteToUDP(ackData, addr)
+			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+				t.Logf("WriteToUDP error: %v", err)
+				return
+			}
 		}
 
 		// Handle RPTK
-		serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Logf("SetReadDeadline error: %v", err)
+			return
+		}
 		if n, addr, err := serverConn.ReadFromUDP(buffer); err == nil && n >= 4 && string(buffer[0:4]) == "RPTK" {
-			serverConn.WriteToUDP(ackData, addr)
+			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+				t.Logf("WriteToUDP error: %v", err)
+				return
+			}
 			_ = n // Mark as used
 		}
 
 		// Handle RPTC
-		serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Logf("SetReadDeadline error: %v", err)
+			return
+		}
 		if n, addr, err := serverConn.ReadFromUDP(buffer); err == nil && n >= 4 && string(buffer[0:4]) == "RPTC" {
-			serverConn.WriteToUDP(ackData, addr)
+			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+				t.Logf("WriteToUDP error: %v", err)
+				return
+			}
 			_ = n // Mark as used
 		}
 	}()
 
 	// Start client
-	go client.Start(ctx)
+	go func() {
+		if err := client.Start(ctx); err != nil {
+			t.Logf("client.Start error: %v", err)
+		}
+	}()
 	time.Sleep(500 * time.Millisecond)
 
 	// Create DMRD packet to send
@@ -224,7 +275,9 @@ func TestClient_SendDMRD(t *testing.T) {
 
 	// Verify server receives it
 	buffer := make([]byte, 1024)
-	serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+	if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Logf("SetReadDeadline error: %v", err)
+	}
 
 	// Read packets until we get a DMRD (skip RPTL, RPTK, RPTC, RPTPING)
 	for i := 0; i < 10; i++ {
@@ -265,7 +318,11 @@ func TestClient_ReceiveDMRD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create mock server: %v", err)
 	}
-	defer serverConn.Close()
+	defer func() {
+		if err := serverConn.Close(); err != nil {
+			t.Logf("serverConn.Close error: %v", err)
+		}
+	}()
 
 	actualServerPort := serverConn.LocalAddr().(*net.UDPAddr).Port
 
@@ -291,41 +348,72 @@ func TestClient_ReceiveDMRD(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	// Helper to handle auth sequence
-	var clientAddr *net.UDPAddr
+	// Helper to handle auth sequence and emit client addr when done
+	clientAddrCh := make(chan *net.UDPAddr, 1)
 	go func() {
 		buffer := make([]byte, 1024)
 		ackPacket := &protocol.RPTACKPacket{RepeaterID: 312000}
 		ackData, _ := ackPacket.Encode()
+		var finalAddr *net.UDPAddr
 
 		// Handle RPTL
-		serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Logf("SetReadDeadline error: %v", err)
+			return
+		}
 		if _, addr, err := serverConn.ReadFromUDP(buffer); err == nil && string(buffer[0:4]) == "RPTL" {
-			clientAddr = addr
-			serverConn.WriteToUDP(ackData, addr)
+			finalAddr = addr
+			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+				t.Logf("WriteToUDP error: %v", err)
+				return
+			}
 		}
 
 		// Handle RPTK
-		serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Logf("SetReadDeadline error: %v", err)
+			return
+		}
 		if n, addr, err := serverConn.ReadFromUDP(buffer); err == nil && n >= 4 && string(buffer[0:4]) == "RPTK" {
-			serverConn.WriteToUDP(ackData, addr)
+			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+				t.Logf("WriteToUDP error: %v", err)
+				return
+			}
 			_ = n // Mark as used
 		}
 
 		// Handle RPTC
-		serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Logf("SetReadDeadline error: %v", err)
+			return
+		}
 		if n, addr, err := serverConn.ReadFromUDP(buffer); err == nil && n >= 4 && string(buffer[0:4]) == "RPTC" {
-			serverConn.WriteToUDP(ackData, addr)
+			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+				t.Logf("WriteToUDP error: %v", err)
+				return
+			}
 			_ = n // Mark as used
+			// Handshake complete - emit client addr
+			if finalAddr != nil {
+				clientAddrCh <- finalAddr
+			} else {
+				clientAddrCh <- addr
+			}
 		}
 	}()
 
 	// Start client
-	go client.Start(ctx)
-	time.Sleep(600 * time.Millisecond)
-
-	if clientAddr == nil {
-		t.Fatal("Failed to get client address from auth sequence")
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- client.Start(ctx)
+	}()
+	// Wait for handshake to complete and get the client address
+	var clientAddr *net.UDPAddr
+	select {
+	case clientAddr = <-clientAddrCh:
+		// proceed
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for client address after handshake")
 	}
 
 	// Send DMRD packet from server to client
@@ -341,7 +429,9 @@ func TestClient_ReceiveDMRD(t *testing.T) {
 	}
 
 	dmrdData, _ := dmrdPacket.Encode()
-	serverConn.WriteToUDP(dmrdData, clientAddr)
+	if _, err := serverConn.WriteToUDP(dmrdData, clientAddr); err != nil {
+		t.Logf("WriteToUDP error: %v", err)
+	}
 
 	// Wait for client to receive and process
 	select {
@@ -354,5 +444,107 @@ func TestClient_ReceiveDMRD(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timeout waiting for DMRD packet")
+	}
+
+	// Teardown client cleanly
+	cancel()
+	<-errChan
+}
+
+func TestClient_Race(t *testing.T) {
+	// Create a mock UDP server
+	serverAddr := &net.UDPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 0, // Let OS assign port
+	}
+	serverConn, err := net.ListenUDP("udp", serverAddr)
+	if err != nil {
+		t.Fatalf("Failed to create mock server: %v", err)
+	}
+	defer func() {
+		if err := serverConn.Close(); err != nil {
+			t.Logf("serverConn.Close error: %v", err)
+		}
+	}()
+	actualServerPort := serverConn.LocalAddr().(*net.UDPAddr).Port
+
+	cfg := config.SystemConfig{
+		Mode:       "PEER",
+		MasterIP:   "127.0.0.1",
+		MasterPort: actualServerPort,
+		Port:       0,
+		RadioID:    312000,
+		Passphrase: "test",
+	}
+	log := logger.New(logger.Config{Level: "debug"})
+	client := NewClient(cfg, log)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Mock server handles authentication handshake
+	go func() {
+		buffer := make([]byte, 1024)
+		ackPacket := &protocol.RPTACKPacket{RepeaterID: 312000}
+		ackData, _ := ackPacket.Encode()
+		for step := 0; step < 3; step++ {
+			if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+				t.Logf("SetReadDeadline error: %v", err)
+				return
+			}
+			n, addr, err := serverConn.ReadFromUDP(buffer)
+			if err != nil {
+				t.Logf("ReadFromUDP error: %v", err)
+				return
+			}
+			if n >= 4 && (string(buffer[0:4]) == "RPTL" || string(buffer[0:4]) == "RPTK" || string(buffer[0:4]) == "RPTC") {
+				if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+					t.Logf("WriteToUDP error: %v", err)
+					return
+				}
+			}
+		}
+	}()
+
+	// Start client in background
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- client.Start(ctx)
+	}()
+
+	// Wait for client to connect
+	time.Sleep(500 * time.Millisecond)
+
+	// Simulate concurrent SendDMRD and handler registration
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+		go func(idx int) {
+			defer wg.Done()
+			packet := &protocol.DMRDPacket{
+				Sequence:      byte(idx),
+				SourceID:      3120000 + uint32(idx),
+				DestinationID: 3100,
+				RepeaterID:    312000,
+				Timeslot:      1,
+				CallType:      0,
+				StreamID:      12345 + uint32(idx),
+				Payload:       make([]byte, 33),
+			}
+			_ = client.SendDMRD(packet)
+		}(i)
+		go func(idx int) {
+			defer wg.Done()
+			client.OnDMRD(func(packet *protocol.DMRDPacket) {
+				// No-op handler
+			})
+		}(i)
+	}
+	wg.Wait()
+	cancel()
+	select {
+	case <-errChan:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Timeout waiting for client shutdown")
 	}
 }

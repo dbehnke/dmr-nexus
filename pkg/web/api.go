@@ -35,7 +35,9 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 		"version": "dev",
 	}
 
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		a.logger.Error("Failed to encode status response", logger.Error(err))
+	}
 }
 
 // HandlePeers handles the /api/peers endpoint
@@ -50,7 +52,9 @@ func (a *API) HandlePeers(w http.ResponseWriter, r *http.Request) {
 
 	// Return empty array for now - will be populated with actual peer data
 	peers := []interface{}{}
-	json.NewEncoder(w).Encode(peers)
+	if err := json.NewEncoder(w).Encode(peers); err != nil {
+		a.logger.Error("Failed to encode peers response", logger.Error(err))
+	}
 }
 
 // HandleBridges handles the /api/bridges endpoint
@@ -65,7 +69,9 @@ func (a *API) HandleBridges(w http.ResponseWriter, r *http.Request) {
 
 	// Return empty array for now - will be populated with actual bridge data
 	bridges := []interface{}{}
-	json.NewEncoder(w).Encode(bridges)
+	if err := json.NewEncoder(w).Encode(bridges); err != nil {
+		a.logger.Error("Failed to encode bridges response", logger.Error(err))
+	}
 }
 
 // HandleActivity handles the /api/activity endpoint
@@ -80,5 +86,7 @@ func (a *API) HandleActivity(w http.ResponseWriter, r *http.Request) {
 
 	// Return empty array for now - will be populated with actual activity data
 	activity := []interface{}{}
-	json.NewEncoder(w).Encode(activity)
+	if err := json.NewEncoder(w).Encode(activity); err != nil {
+		a.logger.Error("Failed to encode activity response", logger.Error(err))
+	}
 }

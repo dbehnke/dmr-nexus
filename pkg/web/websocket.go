@@ -26,7 +26,6 @@ func (e *Event) Marshal() ([]byte, error) {
 type Client struct {
 	ID       string
 	messages chan []byte
-	hub      *WebSocketHub
 }
 
 // WebSocketHub manages WebSocket client connections and broadcasts
@@ -128,10 +127,12 @@ func (h *WebSocketHub) Handler() http.Handler {
 		// using gorilla/websocket or similar library
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"endpoint": "websocket",
 			"status":   "available",
-		})
+		}); err != nil {
+			h.logger.Warn("Failed to encode websocket handler response", logger.Error(err))
+		}
 	})
 }
 

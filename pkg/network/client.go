@@ -71,7 +71,9 @@ func (c *Client) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to create UDP connection: %w", err)
 	}
 	c.conn = conn
-	defer c.conn.Close()
+	defer func() {
+		_ = c.conn.Close()
+	}()
 
 	c.log.Info("Client started",
 		logger.String("master", c.masterAddr.String()),
@@ -123,7 +125,9 @@ func (c *Client) authenticate() error {
 	c.setState(StateRPTLSent)
 
 	// Wait for RPTACK
-	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("failed to set read deadline for RPTACK: %w", err)
+	}
 	buffer := make([]byte, 1024)
 	n, _, err := c.conn.ReadFromUDP(buffer)
 	if err != nil {
@@ -168,7 +172,9 @@ func (c *Client) authenticate() error {
 	}
 
 	// Wait for RPTACK
-	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("failed to set read deadline for RPTK: %w", err)
+	}
 	n, _, err = c.conn.ReadFromUDP(buffer)
 	if err != nil {
 		return fmt.Errorf("failed to receive RPTACK after RPTK: %w", err)
@@ -212,7 +218,9 @@ func (c *Client) authenticate() error {
 	c.setState(StateConfigSent)
 
 	// Wait for RPTACK
-	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := c.conn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("failed to set read deadline for RPTC: %w", err)
+	}
 	n, _, err = c.conn.ReadFromUDP(buffer)
 	if err != nil {
 		return fmt.Errorf("failed to receive RPTACK after RPTC: %w", err)
@@ -226,7 +234,9 @@ func (c *Client) authenticate() error {
 	}
 
 	// Clear read deadline for normal operation
-	c.conn.SetReadDeadline(time.Time{})
+	if err := c.conn.SetReadDeadline(time.Time{}); err != nil {
+		c.log.Warn("Failed to clear read deadline", logger.Error(err))
+	}
 
 	return nil
 }
@@ -243,7 +253,10 @@ func (c *Client) receiveLoop(ctx context.Context) error {
 		}
 
 		// Set read deadline to allow context checking
-		c.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		if err := c.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			c.log.Warn("Failed to set read deadline", logger.Error(err))
+			continue
+		}
 		n, _, err := c.conn.ReadFromUDP(buffer)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
