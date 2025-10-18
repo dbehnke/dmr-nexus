@@ -8,14 +8,24 @@ import (
 func TestDMRDPacket_Parse(t *testing.T) {
 	// Create a sample DMRD packet
 	data := make([]byte, DMRDPacketSize)
-	copy(data[0:4], []byte("DMRD"))       // Signature
-	data[4] = 0x01                         // Sequence
-	data[5] = 0x31; data[6] = 0x20; data[7] = 0x01  // Source ID: 3219457
-	data[8] = 0x00; data[9] = 0x0C; data[10] = 0x1C // Destination ID: 3100
+	copy(data[0:4], []byte("DMRD")) // Signature
+	data[4] = 0x01                  // Sequence
+	data[5] = 0x31
+	data[6] = 0x20
+	data[7] = 0x01 // Source ID: 3219457
+	data[8] = 0x00
+	data[9] = 0x0C
+	data[10] = 0x1C // Destination ID: 3100
 	// Repeater ID: 312000 (0x0004C2C0 in hex)
-	data[11] = 0x00; data[12] = 0x04; data[13] = 0xC2; data[14] = 0xC0
-	data[15] = 0x00                        // Slot byte (TS1, group call)
-	data[16] = 0x00; data[17] = 0x00; data[18] = 0x00; data[19] = 0x01 // Stream ID
+	data[11] = 0x00
+	data[12] = 0x04
+	data[13] = 0xC2
+	data[14] = 0xC0
+	data[15] = 0x00 // Slot byte (TS1, group call)
+	data[16] = 0x00
+	data[17] = 0x00
+	data[18] = 0x00
+	data[19] = 0x01 // Stream ID
 	// Payload bytes 20-52 (33 bytes of voice data - leave as zeros for test)
 
 	packet := &DMRDPacket{}
@@ -185,10 +195,10 @@ func TestDMRDPacket_RoundTrip(t *testing.T) {
 
 func TestDMRDPacket_Timeslot(t *testing.T) {
 	tests := []struct {
-		name      string
-		timeslot  int
-		slotByte  byte
-		expectTS  int
+		name     string
+		timeslot int
+		slotByte byte
+		expectTS int
 	}{
 		{"TS1", Timeslot1, 0x00, Timeslot1},
 		{"TS2", Timeslot2, 0x80, Timeslot2},
@@ -215,10 +225,10 @@ func TestDMRDPacket_Timeslot(t *testing.T) {
 
 func TestDMRDPacket_CallType(t *testing.T) {
 	tests := []struct {
-		name         string
-		callType     int
-		slotByte     byte
-		expectType   int
+		name       string
+		callType   int
+		slotByte   byte
+		expectType int
 	}{
 		{"Group call", CallTypeGroup, 0x00, CallTypeGroup},
 		{"Private call", CallTypePrivate, 0x40, CallTypePrivate},

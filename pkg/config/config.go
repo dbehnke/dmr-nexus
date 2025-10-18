@@ -9,25 +9,25 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Global    GlobalConfig           `mapstructure:"global"`
-	Server    ServerConfig           `mapstructure:"server"`
-	Web       WebConfig              `mapstructure:"web"`
-	Systems   map[string]SystemConfig `mapstructure:"systems"`
-	Bridges   map[string][]BridgeRule `mapstructure:"bridges"`
-	MQTT      MQTTConfig             `mapstructure:"mqtt"`
-	Logging   LoggingConfig          `mapstructure:"logging"`
-	Metrics   MetricsConfig          `mapstructure:"metrics"`
+	Global  GlobalConfig            `mapstructure:"global"`
+	Server  ServerConfig            `mapstructure:"server"`
+	Web     WebConfig               `mapstructure:"web"`
+	Systems map[string]SystemConfig `mapstructure:"systems"`
+	Bridges map[string][]BridgeRule `mapstructure:"bridges"`
+	MQTT    MQTTConfig              `mapstructure:"mqtt"`
+	Logging LoggingConfig           `mapstructure:"logging"`
+	Metrics MetricsConfig           `mapstructure:"metrics"`
 }
 
 // GlobalConfig holds global DMR configuration
 type GlobalConfig struct {
-	PingTime   int    `mapstructure:"ping_time"`   // Seconds between pings
-	MaxMissed  int    `mapstructure:"max_missed"`  // Max missed pings before timeout
-	UseACL     bool   `mapstructure:"use_acl"`     // Enable ACL processing
-	RegACL     string `mapstructure:"reg_acl"`     // Registration ACL
-	SubACL     string `mapstructure:"sub_acl"`     // Subscriber ACL
-	TG1ACL     string `mapstructure:"tg1_acl"`     // Talkgroup timeslot 1 ACL
-	TG2ACL     string `mapstructure:"tg2_acl"`     // Talkgroup timeslot 2 ACL
+	PingTime  int    `mapstructure:"ping_time"`  // Seconds between pings
+	MaxMissed int    `mapstructure:"max_missed"` // Max missed pings before timeout
+	UseACL    bool   `mapstructure:"use_acl"`    // Enable ACL processing
+	RegACL    string `mapstructure:"reg_acl"`    // Registration ACL
+	SubACL    string `mapstructure:"sub_acl"`    // Subscriber ACL
+	TG1ACL    string `mapstructure:"tg1_acl"`    // Talkgroup timeslot 1 ACL
+	TG2ACL    string `mapstructure:"tg2_acl"`    // Talkgroup timeslot 2 ACL
 }
 
 // ServerConfig holds server identification
@@ -48,46 +48,46 @@ type WebConfig struct {
 
 // SystemConfig represents a single DMR system (MASTER, PEER, or OPENBRIDGE)
 type SystemConfig struct {
-	Mode         string `mapstructure:"mode"`          // MASTER, PEER, OPENBRIDGE
-	Enabled      bool   `mapstructure:"enabled"`
+	Mode    string `mapstructure:"mode"` // MASTER, PEER, OPENBRIDGE
+	Enabled bool   `mapstructure:"enabled"`
 
 	// Common fields
-	IP           string `mapstructure:"ip"`
-	Port         int    `mapstructure:"port"`
-	Passphrase   string `mapstructure:"passphrase"`
+	IP         string `mapstructure:"ip"`
+	Port       int    `mapstructure:"port"`
+	Passphrase string `mapstructure:"passphrase"`
 
 	// MASTER mode specific
-	Repeat       bool   `mapstructure:"repeat"`
-	MaxPeers     int    `mapstructure:"max_peers"`
+	Repeat   bool `mapstructure:"repeat"`
+	MaxPeers int  `mapstructure:"max_peers"`
 
 	// PEER mode specific
-	Loose        bool   `mapstructure:"loose"`
-	MasterIP     string `mapstructure:"master_ip"`
-	MasterPort   int    `mapstructure:"master_port"`
-	Callsign     string `mapstructure:"callsign"`
-	RadioID      int    `mapstructure:"radio_id"`
-	RXFreq       int    `mapstructure:"rx_freq"`
-	TXFreq       int    `mapstructure:"tx_freq"`
-	TXPower      int    `mapstructure:"tx_power"`
-	ColorCode    int    `mapstructure:"color_code"`
-	Latitude     float64 `mapstructure:"latitude"`
-	Longitude    float64 `mapstructure:"longitude"`
-	Height       int    `mapstructure:"height"`
-	Location     string `mapstructure:"location"`
-	Description  string `mapstructure:"description"`
-	URL          string `mapstructure:"url"`
-	SoftwareID   string `mapstructure:"software_id"`
-	PackageID    string `mapstructure:"package_id"`
+	Loose       bool    `mapstructure:"loose"`
+	MasterIP    string  `mapstructure:"master_ip"`
+	MasterPort  int     `mapstructure:"master_port"`
+	Callsign    string  `mapstructure:"callsign"`
+	RadioID     int     `mapstructure:"radio_id"`
+	RXFreq      int     `mapstructure:"rx_freq"`
+	TXFreq      int     `mapstructure:"tx_freq"`
+	TXPower     int     `mapstructure:"tx_power"`
+	ColorCode   int     `mapstructure:"color_code"`
+	Latitude    float64 `mapstructure:"latitude"`
+	Longitude   float64 `mapstructure:"longitude"`
+	Height      int     `mapstructure:"height"`
+	Location    string  `mapstructure:"location"`
+	Description string  `mapstructure:"description"`
+	URL         string  `mapstructure:"url"`
+	SoftwareID  string  `mapstructure:"software_id"`
+	PackageID   string  `mapstructure:"package_id"`
 
 	// OPENBRIDGE mode specific
-	TargetIP     string `mapstructure:"target_ip"`
-	TargetPort   int    `mapstructure:"target_port"`
-	NetworkID    int    `mapstructure:"network_id"`
-	BothSlots    bool   `mapstructure:"both_slots"`
+	TargetIP   string `mapstructure:"target_ip"`
+	TargetPort int    `mapstructure:"target_port"`
+	NetworkID  int    `mapstructure:"network_id"`
+	BothSlots  bool   `mapstructure:"both_slots"`
 
 	// Common settings
-	GroupHangtime int   `mapstructure:"group_hangtime"` // Seconds
-	UseACL        bool  `mapstructure:"use_acl"`
+	GroupHangtime int    `mapstructure:"group_hangtime"` // Seconds
+	UseACL        bool   `mapstructure:"use_acl"`
 	RegACL        string `mapstructure:"reg_acl"`
 	SubACL        string `mapstructure:"sub_acl"`
 	TG1ACL        string `mapstructure:"tg1_acl"`
@@ -97,14 +97,14 @@ type SystemConfig struct {
 
 // BridgeRule represents a conference bridge routing rule
 type BridgeRule struct {
-	System   string        `mapstructure:"system"`
-	TGID     int           `mapstructure:"tgid"`
-	Timeslot int           `mapstructure:"timeslot"`
-	Active   bool          `mapstructure:"active"`
-	On       []int         `mapstructure:"on"`       // TGIDs that activate
-	Off      []int         `mapstructure:"off"`      // TGIDs that deactivate
-	Timeout  int           `mapstructure:"timeout"`  // Minutes
-	ToType   string        `mapstructure:"to_type"`  // ON or OFF
+	System   string `mapstructure:"system"`
+	TGID     int    `mapstructure:"tgid"`
+	Timeslot int    `mapstructure:"timeslot"`
+	Active   bool   `mapstructure:"active"`
+	On       []int  `mapstructure:"on"`      // TGIDs that activate
+	Off      []int  `mapstructure:"off"`     // TGIDs that deactivate
+	Timeout  int    `mapstructure:"timeout"` // Minutes
+	ToType   string `mapstructure:"to_type"` // ON or OFF
 }
 
 // MQTTConfig holds MQTT client configuration

@@ -27,26 +27,26 @@ const (
 
 // Client represents a UDP client for PEER mode
 type Client struct {
-	config       config.SystemConfig
-	log          *logger.Logger
-	conn         *net.UDPConn
-	masterAddr   *net.UDPAddr
-	state        ConnectionState
-	stateMu      sync.RWMutex
-	salt         []byte
-	dmrdHandler  func(*protocol.DMRDPacket)
-	handlerMu    sync.RWMutex
-	lastPing     time.Time
-	lastPingMu   sync.RWMutex
+	config      config.SystemConfig
+	log         *logger.Logger
+	conn        *net.UDPConn
+	masterAddr  *net.UDPAddr
+	state       ConnectionState
+	stateMu     sync.RWMutex
+	salt        []byte
+	dmrdHandler func(*protocol.DMRDPacket)
+	handlerMu   sync.RWMutex
+	lastPing    time.Time
+	lastPingMu  sync.RWMutex
 }
 
 // NewClient creates a new UDP client for PEER mode
 func NewClient(cfg config.SystemConfig, log *logger.Logger) *Client {
 	return &Client{
-		config:      cfg,
-		log:         log.WithComponent("network.client"),
-		state:       StateDisconnected,
-		lastPing:    time.Now(),
+		config:   cfg,
+		log:      log.WithComponent("network.client"),
+		state:    StateDisconnected,
+		lastPing: time.Now(),
 	}
 }
 
@@ -84,7 +84,7 @@ func (c *Client) Start(ctx context.Context) error {
 
 	// Start goroutines for receiving and keepalive
 	errChan := make(chan error, 2)
-	
+
 	go func() {
 		errChan <- c.receiveLoop(ctx)
 	}()
@@ -106,7 +106,7 @@ func (c *Client) Start(ctx context.Context) error {
 func (c *Client) authenticate() error {
 	// Step 1: Send RPTL (login request)
 	c.log.Info("Sending RPTL (login request)", logger.Int("radio_id", int(c.config.RadioID)))
-	
+
 	rptl := &protocol.RPTLPacket{
 		RepeaterID: uint32(c.config.RadioID),
 	}
@@ -140,7 +140,7 @@ func (c *Client) authenticate() error {
 
 	// Step 2: Send RPTK (key exchange)
 	c.log.Info("Sending RPTK (key exchange)")
-	
+
 	// Generate salt for challenge
 	c.salt = make([]byte, protocol.SaltLength)
 	for i := range c.salt {
@@ -182,7 +182,7 @@ func (c *Client) authenticate() error {
 
 	// Step 3: Send RPTC (configuration)
 	c.log.Info("Sending RPTC (configuration)")
-	
+
 	rptc := &protocol.RPTCPacket{
 		RepeaterID:  uint32(c.config.RadioID),
 		Callsign:    c.config.Callsign,

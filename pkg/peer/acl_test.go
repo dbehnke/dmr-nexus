@@ -228,15 +228,15 @@ func TestACL_Check_Multiple(t *testing.T) {
 		id       uint32
 		expected bool
 	}{
-		{1, false},        // Denied by first rule
-		{1500, false},     // Denied by range 1000-2000
-		{5000, false},     // Denied by range 4500-6000
-		{3000, true},      // Allowed (not in any deny rule)
-		{312000, true},    // Allowed (not in any deny rule)
-		{999, true},       // Allowed (just before range)
-		{2001, true},      // Allowed (just after range)
-		{4499, true},      // Allowed (just before range)
-		{6001, true},      // Allowed (just after range)
+		{1, false},     // Denied by first rule
+		{1500, false},  // Denied by range 1000-2000
+		{5000, false},  // Denied by range 4500-6000
+		{3000, true},   // Allowed (not in any deny rule)
+		{312000, true}, // Allowed (not in any deny rule)
+		{999, true},    // Allowed (just before range)
+		{2001, true},   // Allowed (just after range)
+		{4499, true},   // Allowed (just before range)
+		{6001, true},   // Allowed (just after range)
 	}
 
 	for _, tt := range tests {

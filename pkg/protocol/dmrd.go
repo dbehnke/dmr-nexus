@@ -157,7 +157,7 @@ func (p *DMRDPacket) Encode() ([]byte, error) {
 
 // ParseDMRD parses a DMRD packet from raw bytes
 func ParseDMRD(data []byte) (*DMRDPacket, error) {
-p := &DMRDPacket{}
-err := p.Parse(data)
-return p, err
+	p := &DMRDPacket{}
+	err := p.Parse(data)
+	return p, err
 }

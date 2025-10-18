@@ -16,9 +16,9 @@ import (
 
 // Server represents a UDP server for MASTER mode
 type Server struct {
-	config      config.SystemConfig
-	log         *logger.Logger
-	conn        *net.UDPConn
+	config          config.SystemConfig
+	log             *logger.Logger
+	conn            *net.UDPConn
 	peerManager     *peer.PeerManager
 	pingTimeout     time.Duration
 	cleanupInterval time.Duration
@@ -449,7 +449,7 @@ func (s *Server) verifyChallenge(peerID uint32, challenge []byte) bool {
 	// 1. Generate our own challenge based on salt + passphrase
 	// 2. Compare with received challenge
 	// For now, just accept all challenges after RPTL
-	
+
 	p := s.peerManager.GetPeer(peerID)
 	if p == nil {
 		return false

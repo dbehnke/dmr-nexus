@@ -113,12 +113,12 @@ func (p *Peer) GetLastHeard() time.Time {
 func (p *Peer) IsTimedOut(timeout time.Duration) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	// If never heard, consider timed out
 	if p.LastHeard.IsZero() {
 		return true
 	}
-	
+
 	return time.Since(p.LastHeard) > timeout
 }
 
@@ -141,7 +141,7 @@ func (p *Peer) GetConnectedAt() time.Time {
 func (p *Peer) SetConfig(config *protocol.RPTCPacket) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	p.Callsign = config.Callsign
 	p.RXFreq = config.RXFreq
 	p.TXFreq = config.TXFreq
@@ -189,10 +189,10 @@ func (p *Peer) AddBytesSent(bytes uint64) {
 func (p *Peer) GetUptime() time.Duration {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	if p.ConnectedAt.IsZero() {
 		return 0
 	}
-	
+
 	return time.Since(p.ConnectedAt)
 }

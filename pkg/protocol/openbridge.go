@@ -46,7 +46,7 @@ func (p *DMRDPacket) VerifyOpenBridgeHMAC(passphrase string) bool {
 	p.HMAC = nil
 	data, err := p.Encode()
 	p.HMAC = savedHMAC
-	
+
 	if err != nil {
 		return false
 	}

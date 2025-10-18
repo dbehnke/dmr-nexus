@@ -43,15 +43,15 @@ const (
 
 // DMRD packet field offsets
 const (
-	DMRDOffsetSignature  = 0  // 4 bytes: "DMRD"
-	DMRDOffsetSeq        = 4  // 1 byte: Sequence number
-	DMRDOffsetSrcID      = 5  // 3 bytes: Source subscriber ID
-	DMRDOffsetDstID      = 8  // 3 bytes: Destination ID (talkgroup or subscriber)
-	DMRDOffsetRptID      = 11 // 4 bytes: Repeater/Peer ID
-	DMRDOffsetSlot       = 15 // 1 byte: Slot/Call type bits
-	DMRDOffsetStreamID   = 16 // 4 bytes: Stream ID
-	DMRDOffsetPayload    = 20 // 33 bytes: Voice/Data payload
-	DMRDOffsetHMAC       = 53 // 20 bytes: HMAC-SHA1 (OpenBridge only)
+	DMRDOffsetSignature = 0  // 4 bytes: "DMRD"
+	DMRDOffsetSeq       = 4  // 1 byte: Sequence number
+	DMRDOffsetSrcID     = 5  // 3 bytes: Source subscriber ID
+	DMRDOffsetDstID     = 8  // 3 bytes: Destination ID (talkgroup or subscriber)
+	DMRDOffsetRptID     = 11 // 4 bytes: Repeater/Peer ID
+	DMRDOffsetSlot      = 15 // 1 byte: Slot/Call type bits
+	DMRDOffsetStreamID  = 16 // 4 bytes: Stream ID
+	DMRDOffsetPayload   = 20 // 33 bytes: Voice/Data payload
+	DMRDOffsetHMAC      = 53 // 20 bytes: HMAC-SHA1 (OpenBridge only)
 )
 
 // Authentication sequence constants
