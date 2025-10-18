@@ -236,12 +236,12 @@ func TestTimerManager_CallbackExecution(t *testing.T) {
 	}
 
 	// Track if callback was called using a channel
-	callbackDone := make(chan bool, 1)
+	callbackDone := make(chan struct{}, 1)
 	callback := func(r *BridgeRule) {
 		if r.System != "SYSTEM1" {
 			t.Error("Wrong rule passed to callback")
 		}
-		callbackDone <- true
+		callbackDone <- struct{}{}
 	}
 
 	// Set timeout with callback using a very short duration for testing
