@@ -235,22 +235,23 @@ func TestTimerManager_CallbackExecution(t *testing.T) {
 		Timeout:  1,
 	}
 
-	// Track if callback was called
-	callbackCalled := false
+	// Track if callback was called using a channel
+	callbackDone := make(chan bool, 1)
 	callback := func(r *BridgeRule) {
-		callbackCalled = true
 		if r.System != "SYSTEM1" {
 			t.Error("Wrong rule passed to callback")
 		}
+		callbackDone <- true
 	}
 
 	// Set timeout with callback using a very short duration for testing
 	tm.SetTimeoutWithCallback(rule, 10*time.Millisecond, callback)
 
 	// Wait for callback to be called
-	time.Sleep(20 * time.Millisecond)
-
-	if !callbackCalled {
+	select {
+	case <-callbackDone:
+		// Callback was called successfully
+	case <-time.After(100 * time.Millisecond):
 		t.Error("Callback should have been called after timeout")
 	}
 }
