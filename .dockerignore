@@ -1,0 +1,55 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+bin/
+dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Testing
+coverage.txt
+coverage.html
+*.test
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies (will be downloaded in container)
+vendor/
+
+# Frontend (except dist which we copy)
+frontend/node_modules
+frontend/.vite
+frontend/.env.local
+
+# Documentation (not needed in container)
+*.md
+docs/
+
+# CI/CD
+.github/
+.dagger/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Config files
+config.yaml
+*.local.yaml

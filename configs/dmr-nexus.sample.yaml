@@ -1,0 +1,163 @@
+# DMR-Nexus Configuration Sample
+# Copy this file to config.yaml and modify for your setup
+
+# Global DMR configuration
+global:
+  ping_time: 5          # Seconds between pings
+  max_missed: 3         # Max missed pings before timeout
+  use_acl: true         # Enable global ACL processing
+
+  # Global ACLs (processed before system-level ACLs)
+  reg_acl: "PERMIT:ALL"       # Peer registration ACL (MASTER only)
+  sub_acl: "DENY:1"           # Subscriber ID ACL
+  tg1_acl: "PERMIT:ALL"       # Talkgroup timeslot 1 ACL
+  tg2_acl: "PERMIT:ALL"       # Talkgroup timeslot 2 ACL
+
+# Server identification
+server:
+  name: "DMR-Nexus"
+  description: "Go DMR Server"
+
+# Web dashboard configuration
+web:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8080
+  auth_required: false
+  # username: "admin"
+  # password: "changeme"
+
+# MQTT integration
+mqtt:
+  enabled: false
+  broker: "tcp://localhost:1883"
+  topic_prefix: "dmr/nexus"
+  client_id: "dmr-nexus"
+  # username: "mqtt_user"
+  # password: "mqtt_password"
+  qos: 1
+  retained: false
+
+# Logging configuration
+logging:
+  level: "info"          # debug, info, warn, error
+  format: "text"         # text or json
+  # file: "/var/log/dmr-nexus.log"
+  max_size: 100          # MB
+  max_backups: 3
+  max_age: 7             # days
+
+# Prometheus metrics
+metrics:
+  enabled: true
+  prometheus:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+
+# DMR systems
+systems:
+  # MASTER mode - accept peer connections
+  MASTER-1:
+    mode: MASTER
+    enabled: true
+    ip: "0.0.0.0"
+    port: 62031
+    passphrase: "changeme"
+    repeat: true              # Repeat traffic to other peers
+    max_peers: 50
+    group_hangtime: 5         # Seconds
+
+    # System-level ACLs
+    use_acl: true
+    reg_acl: "PERMIT:ALL"
+    sub_acl: "DENY:1"
+    tg1_acl: "PERMIT:ALL"
+    tg2_acl: "PERMIT:ALL"
+
+  # PEER mode - connect to a master
+  REPEATER-1:
+    mode: PEER
+    enabled: false
+    ip: ""                    # Leave blank for auto
+    port: 62032
+    master_ip: "192.168.1.1"
+    master_port: 62031
+    passphrase: "changeme"
+    loose: false              # Relax packet validation
+
+    # Repeater identification
+    callsign: "W1ABC"
+    radio_id: 312000
+    rx_freq: 449000000        # Hz
+    tx_freq: 444000000        # Hz
+    tx_power: 25              # Watts
+    color_code: 1
+    latitude: 42.3601
+    longitude: -71.0589
+    height: 75                # Meters
+    location: "Boston, MA"
+    description: "Example Repeater"
+    url: "https://example.com"
+    software_id: "DMR-Nexus"
+    package_id: "DMR-Nexus"
+    group_hangtime: 5
+
+    # System-level ACLs
+    use_acl: true
+    sub_acl: "DENY:1"
+    tg1_acl: "PERMIT:ALL"
+    tg2_acl: "PERMIT:ALL"
+
+  # OPENBRIDGE mode - Brandmeister/DMR+ connection
+  OBP-BRANDMEISTER:
+    mode: OPENBRIDGE
+    enabled: false
+    ip: ""
+    port: 62035
+    target_ip: "44.131.4.1"   # Brandmeister server
+    target_port: 62031
+    network_id: 3129999       # Your network ID
+    passphrase: "password"
+    both_slots: false         # true = allow TS2 for unit calls
+
+    # System-level ACLs (single ACL for OpenBridge)
+    use_acl: true
+    sub_acl: "DENY:1"
+    tg_acl: "PERMIT:ALL"
+
+# Conference bridge routing rules
+bridges:
+  # Nationwide talkgroup 3100
+  NATIONWIDE:
+    - system: MASTER-1
+      tgid: 3100
+      timeslot: 1
+      active: true
+      timeout: 15             # Auto-disable after 15 minutes
+
+    - system: REPEATER-1
+      tgid: 3100
+      timeslot: 1
+      active: false
+      on: [3100]              # Activate when TG 3100 received
+      off: [3101]             # Deactivate when TG 3101 received
+
+    - system: OBP-BRANDMEISTER
+      tgid: 91                # BrandMeister worldwide
+      timeslot: 1
+      active: true
+
+  # Regional talkgroup with timer
+  REGIONAL:
+    - system: MASTER-1
+      tgid: 3120
+      timeslot: 2
+      active: false
+      to_type: "OFF"          # Timer type: ON or OFF
+      timeout: 60             # Minutes
+
+    - system: REPEATER-1
+      tgid: 3120
+      timeslot: 2
+      active: true
