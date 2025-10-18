@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"encoding/binary"
 	"net"
 	"testing"
 	"time"
@@ -477,5 +478,125 @@ func TestServer_PeerTimeout(t *testing.T) {
 	// Peer should be removed due to timeout
 	if srv.peerManager.Count() != 0 {
 		t.Errorf("Expected 0 peers after timeout, got %d", srv.peerManager.Count())
+	}
+}
+
+// Additional coverage: verify DMRD forwarding when Repeat is enabled
+func TestServer_ForwardDMRD_RepeatEnabled(t *testing.T) {
+	cfg := config.SystemConfig{
+		Mode:   "MASTER",
+		Repeat: true,
+	}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, log)
+
+	// Bind a UDP socket for the server without starting background loops
+	srvAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
+	serverConn, err := net.ListenUDP("udp", srvAddr)
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Destination peer (should receive forwarded DMRD)
+	destConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("dest ListenUDP error: %v", err)
+	}
+	defer func() { _ = destConn.Close() }()
+	destPeer := srv.peerManager.AddPeer(222, destConn.LocalAddr().(*net.UDPAddr))
+	destPeer.SetConnected()
+
+	// Source peer (should be excluded)
+	srcAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 65000}
+	srcPeer := srv.peerManager.AddPeer(111, srcAddr)
+	srcPeer.SetConnected()
+
+	// Prepare a DMRD packet
+	dmrd := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      3120001,
+		DestinationID: 3100,
+		RepeaterID:    111,
+		Timeslot:      1,
+		CallType:      0,
+		StreamID:      12345,
+		Payload:       make([]byte, 33),
+	}
+	data, err := dmrd.Encode()
+	if err != nil {
+		t.Fatalf("Encode DMRD error: %v", err)
+	}
+
+	// Trigger forwarding
+	if err := destConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.forwardDMRD(dmrd, data, srcPeer.ID)
+
+	// Expect to receive the forwarded packet on destination
+	buf := make([]byte, 2048)
+	n, _, err := destConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("dest ReadFromUDP error: %v", err)
+	}
+	if n != len(data) {
+		t.Fatalf("forward size mismatch: got %d want %d", n, len(data))
+	}
+}
+
+// Additional coverage: RPTPING should generate MSTPONG to the sender
+func TestServer_HandleRPTPING_SendsMSTPONG(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, log)
+
+	// Bind server UDP socket
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	// Register the peer so handleRPTPING finds it
+	peerID := uint32(312000)
+	p := srv.peerManager.AddPeer(peerID, senderConn.LocalAddr().(*net.UDPAddr))
+	p.SetConnected()
+
+	// Craft an RPTPING packet (7-byte type + repeater id at [7:11])
+	ping := make([]byte, protocol.RPTPINGPacketSize)
+	copy(ping[0:7], protocol.PacketTypeRPTPING)
+	binary.BigEndian.PutUint32(ping[7:11], peerID)
+
+	if err := senderConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	// Call handler directly with sender address
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	// Expect MSTPONG back
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("sender ReadFromUDP error: %v", err)
+	}
+	if n < protocol.MSTPONGPacketSize {
+		t.Fatalf("pong too small: %d", n)
+	}
+	if string(buf[0:7]) != protocol.PacketTypeMSTPONG {
+		t.Fatalf("expected MSTPONG, got %q", string(buf[0:n]))
+	}
+	gotID := binary.BigEndian.Uint32(buf[7:11])
+	if gotID != peerID {
+		t.Fatalf("MSTPONG peer id mismatch: got %d want %d", gotID, peerID)
 	}
 }
