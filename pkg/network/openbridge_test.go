@@ -316,10 +316,10 @@ func TestOpenBridgeClient_BothSlots(t *testing.T) {
 	log := logger.New(logger.Config{Level: "debug"})
 
 	tests := []struct {
-		name      string
-		bothSlots bool
-		timeslot  int
-		callType  int
+		name       string
+		bothSlots  bool
+		timeslot   int
+		callType   int
 		shouldSend bool
 	}{
 		{"TS1 with both_slots=false", false, protocol.Timeslot1, protocol.CallTypeGroup, true},

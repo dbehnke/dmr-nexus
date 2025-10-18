@@ -225,7 +225,7 @@ func TestClient_SendDMRD(t *testing.T) {
 	// Verify server receives it
 	buffer := make([]byte, 1024)
 	serverConn.SetReadDeadline(time.Now().Add(1 * time.Second))
-	
+
 	// Read packets until we get a DMRD (skip RPTL, RPTK, RPTC, RPTPING)
 	for i := 0; i < 10; i++ {
 		n, _, err := serverConn.ReadFromUDP(buffer)

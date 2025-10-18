@@ -76,7 +76,7 @@ func TestIntegration_ClientToMaster(t *testing.T) {
 	masterErrChan := make(chan error, 1)
 	masterReceivedDMRD := make(chan *protocol.DMRDPacket, 1)
 	clientAddrChan := make(chan *net.UDPAddr, 1)
-	
+
 	go func() {
 		defer close(masterReceivedDMRD)
 		buffer := make([]byte, 4096)
@@ -114,7 +114,7 @@ func TestIntegration_ClientToMaster(t *testing.T) {
 			// Process packet based on type
 			if n >= 4 {
 				packetType := string(buffer[0:4])
-				
+
 				switch {
 				case packetType == protocol.PacketTypeRPTL:
 					t.Log("Master: Received RPTL, sending RPTACK")
@@ -134,7 +134,7 @@ func TestIntegration_ClientToMaster(t *testing.T) {
 						t.Log("Master: Ignoring DMRD before auth complete")
 						continue
 					}
-					
+
 					// Parse and store DMRD packet
 					dmrd := &protocol.DMRDPacket{}
 					if err := dmrd.Parse(buffer[:n]); err == nil {
@@ -253,7 +253,7 @@ func TestIntegration_ClientToMaster(t *testing.T) {
 
 	// Clean shutdown
 	cancel()
-	
+
 	select {
 	case err := <-clientErrChan:
 		if err != nil && err != context.Canceled && err != context.DeadlineExceeded {

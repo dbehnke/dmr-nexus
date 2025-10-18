@@ -60,13 +60,13 @@ func (p *RPTKPacket) Encode() ([]byte, error) {
 	data := make([]byte, RPTKPacketSize)
 	copy(data[0:4], []byte(PacketTypeRPTK))
 	binary.BigEndian.PutUint32(data[4:8], p.RepeaterID)
-	
+
 	if len(p.Challenge) >= ChallengeLength {
 		copy(data[8:8+ChallengeLength], p.Challenge[:ChallengeLength])
 	} else {
 		copy(data[8:], p.Challenge)
 	}
-	
+
 	return data, nil
 }
 

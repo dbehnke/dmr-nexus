@@ -99,7 +99,7 @@ func TestFrameTypes(t *testing.T) {
 
 func TestCallTypes(t *testing.T) {
 	// Test that call type detection works correctly
-	groupCall := byte(0x00) // bit 6 clear = group call
+	groupCall := byte(0x00)   // bit 6 clear = group call
 	privateCall := byte(0x40) // bit 6 set = private call
 
 	if groupCall&SlotCallTypeMask != 0 {

@@ -182,7 +182,7 @@ func TestPeerManager_CleanupTimedOutPeers(t *testing.T) {
 	// Add peers
 	addr1 := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 62031}
 	peer1 := mgr.AddPeer(312000, addr1)
-	
+
 	addr2 := &net.UDPAddr{IP: net.ParseIP("192.168.1.101"), Port: 62031}
 	mgr.AddPeer(312001, addr2)
 
@@ -217,7 +217,7 @@ func TestPeerManager_Concurrent(t *testing.T) {
 
 	// Test concurrent operations
 	done := make(chan bool)
-	
+
 	// Add peers concurrently
 	for i := 0; i < 10; i++ {
 		go func(id uint32) {

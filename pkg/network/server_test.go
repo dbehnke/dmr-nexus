@@ -333,7 +333,7 @@ func TestServer_PeerTimeout(t *testing.T) {
 
 	log := logger.New(logger.Config{Level: "info"})
 	srv := NewServer(cfg, log)
-	srv.pingTimeout = 200 * time.Millisecond      // Short timeout for testing
+	srv.pingTimeout = 200 * time.Millisecond     // Short timeout for testing
 	srv.cleanupInterval = 100 * time.Millisecond // Frequent cleanup for testing
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
