@@ -58,7 +58,7 @@ func (c *OpenBridgeClient) Start(ctx context.Context) error {
 	c.connMu.Lock()
 	c.conn = conn
 	c.connMu.Unlock()
-	defer c.conn.Close()
+	defer conn.Close()
 
 	c.log.Info("OpenBridge client started",
 		logger.String("target", c.targetAddr.String()),
