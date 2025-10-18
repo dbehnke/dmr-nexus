@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/dbehnke/dmr-nexus/pkg/config"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
+	"github.com/dbehnke/dmr-nexus/pkg/web"
 )
 
 var (
@@ -64,18 +66,35 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
+	// Start web server if enabled
+	var wg sync.WaitGroup
+	if cfg.Web.Enabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := web.Start(ctx, cfg.Web, log.WithComponent("web")); err != nil && err != context.Canceled {
+				log.Error("Web server error", logger.Error(err))
+			}
+		}()
+		log.Info("Web server started",
+			logger.String("host", cfg.Web.Host),
+			logger.Int("port", cfg.Web.Port))
+	}
+
 	// TODO: Initialize and start the DMR server components
 	log.Info("DMR-Nexus initialized",
 		logger.String("server_name", cfg.Server.Name))
 
-	// Wait for shutdown signal (context is reserved for future use)
+	// Wait for shutdown signal
 	sig := <-sigChan
 	log.Info("Received shutdown signal",
 		logger.String("signal", sig.String()))
 
 	// Cancel context to trigger graceful shutdown
 	cancel()
-	_ = ctx // Suppress unused warning until we implement server components
+
+	// Wait for all components to stop
+	wg.Wait()
 
 	log.Info("DMR-Nexus stopped")
 }
