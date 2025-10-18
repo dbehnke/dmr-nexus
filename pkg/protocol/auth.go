@@ -262,3 +262,54 @@ func (p *MSTCLPacket) Encode() ([]byte, error) {
 	binary.BigEndian.PutUint32(data[5:9], p.RepeaterID)
 	return data, nil
 }
+
+// Helper functions for parsing packets
+
+// ParseRPTL parses an RPTL packet from raw bytes
+func ParseRPTL(data []byte) (*RPTLPacket, error) {
+	p := &RPTLPacket{}
+	err := p.Parse(data)
+	return p, err
+}
+
+// ParseRPTK parses an RPTK packet from raw bytes
+func ParseRPTK(data []byte) (*RPTKPacket, error) {
+	p := &RPTKPacket{}
+	err := p.Parse(data)
+	return p, err
+}
+
+// ParseRPTC parses an RPTC packet from raw bytes
+func ParseRPTC(data []byte) (*RPTCPacket, error) {
+	p := &RPTCPacket{}
+	err := p.Parse(data)
+	return p, err
+}
+
+// ParseRPTACK parses an RPTACK packet from raw bytes
+func ParseRPTACK(data []byte) (*RPTACKPacket, error) {
+	p := &RPTACKPacket{}
+	err := p.Parse(data)
+	return p, err
+}
+
+// ParseRPTPING parses an RPTPING packet from raw bytes
+func ParseRPTPING(data []byte) (*RPTPINGPacket, error) {
+	p := &RPTPINGPacket{}
+	err := p.Parse(data)
+	return p, err
+}
+
+// ParseMSTPONG parses an MSTPONG packet from raw bytes
+func ParseMSTPONG(data []byte) (*MSTPONGPacket, error) {
+	p := &MSTPONGPacket{}
+	err := p.Parse(data)
+	return p, err
+}
+
+// ParseMSTCL parses an MSTCL packet from raw bytes
+func ParseMSTCL(data []byte) (*MSTCLPacket, error) {
+	p := &MSTCLPacket{}
+	err := p.Parse(data)
+	return p, err
+}
