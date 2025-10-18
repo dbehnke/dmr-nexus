@@ -168,7 +168,7 @@ func TestOpenBridgeClient_ReceiveDMRD(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Get client's actual port
-	clientAddr := client.conn.LocalAddr().(*net.UDPAddr)
+	clientAddr := client.GetLocalAddr().(*net.UDPAddr)
 
 	// Create a mock sender
 	senderConn, err := net.DialUDP("udp", nil, clientAddr)
@@ -261,7 +261,7 @@ func TestOpenBridgeClient_RejectInvalidHMAC(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Get client's actual port
-	clientAddr := client.conn.LocalAddr().(*net.UDPAddr)
+	clientAddr := client.GetLocalAddr().(*net.UDPAddr)
 
 	// Create a mock sender
 	senderConn, err := net.DialUDP("udp", nil, clientAddr)

@@ -18,7 +18,9 @@ type OpenBridgeClient struct {
 	config      config.SystemConfig
 	log         *logger.Logger
 	conn        *net.UDPConn
+	connMu      sync.RWMutex
 	targetAddr  *net.UDPAddr
+	targetMu    sync.RWMutex
 	dmrdHandler func(*protocol.DMRDPacket)
 	handlerMu   sync.RWMutex
 }
@@ -38,7 +40,9 @@ func (c *OpenBridgeClient) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve target address: %w", err)
 	}
+	c.targetMu.Lock()
 	c.targetAddr = targetAddr
+	c.targetMu.Unlock()
 
 	// Create local UDP address
 	localAddr := &net.UDPAddr{
@@ -51,7 +55,9 @@ func (c *OpenBridgeClient) Start(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create UDP connection: %w", err)
 	}
+	c.connMu.Lock()
 	c.conn = conn
+	c.connMu.Unlock()
 	defer c.conn.Close()
 
 	c.log.Info("OpenBridge client started",
@@ -86,7 +92,15 @@ func (c *OpenBridgeClient) receiveLoop(ctx context.Context) error {
 		default:
 		}
 
-		n, addr, err := c.conn.ReadFromUDP(buf)
+		c.connMu.RLock()
+		conn := c.conn
+		c.connMu.RUnlock()
+
+		if conn == nil {
+			return fmt.Errorf("connection is nil")
+		}
+
+		n, addr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -179,8 +193,24 @@ func (c *OpenBridgeClient) SendDMRD(packet *protocol.DMRDPacket) error {
 		return fmt.Errorf("failed to encode packet: %w", err)
 	}
 
+	// Get connection and target
+	c.connMu.RLock()
+	conn := c.conn
+	c.connMu.RUnlock()
+
+	c.targetMu.RLock()
+	targetAddr := c.targetAddr
+	c.targetMu.RUnlock()
+
+	if conn == nil {
+		return fmt.Errorf("connection is nil")
+	}
+	if targetAddr == nil {
+		return fmt.Errorf("target address is nil")
+	}
+
 	// Send to target
-	_, err = c.conn.WriteToUDP(data, c.targetAddr)
+	_, err = conn.WriteToUDP(data, targetAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send packet: %w", err)
 	}
@@ -201,10 +231,24 @@ func (c *OpenBridgeClient) SetDMRDHandler(handler func(*protocol.DMRDPacket)) {
 	c.dmrdHandler = handler
 }
 
+// GetLocalAddr returns the local UDP address
+func (c *OpenBridgeClient) GetLocalAddr() net.Addr {
+	c.connMu.RLock()
+	defer c.connMu.RUnlock()
+	if c.conn != nil {
+		return c.conn.LocalAddr()
+	}
+	return nil
+}
+
 // Stop stops the OpenBridge client
 func (c *OpenBridgeClient) Stop() error {
-	if c.conn != nil {
-		return c.conn.Close()
+	c.connMu.RLock()
+	conn := c.conn
+	c.connMu.RUnlock()
+
+	if conn != nil {
+		return conn.Close()
 	}
 	return nil
 }
