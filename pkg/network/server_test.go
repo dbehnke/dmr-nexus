@@ -333,7 +333,8 @@ func TestServer_PeerTimeout(t *testing.T) {
 
 	log := logger.New(logger.Config{Level: "info"})
 	srv := NewServer(cfg, log)
-	srv.pingTimeout = 100 * time.Millisecond // Short timeout for testing
+	srv.pingTimeout = 200 * time.Millisecond      // Short timeout for testing
+	srv.cleanupInterval = 100 * time.Millisecond // Frequent cleanup for testing
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -355,14 +356,14 @@ func TestServer_PeerTimeout(t *testing.T) {
 	clientConn.Write(data)
 
 	// Wait for peer to be added
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 
 	if srv.peerManager.Count() != 1 {
 		t.Fatalf("Expected 1 peer, got %d", srv.peerManager.Count())
 	}
 
-	// Wait for timeout cleanup
-	time.Sleep(300 * time.Millisecond)
+	// Wait for timeout cleanup (pingTimeout + cleanupInterval + buffer)
+	time.Sleep(400 * time.Millisecond)
 
 	// Peer should be removed due to timeout
 	if srv.peerManager.Count() != 0 {

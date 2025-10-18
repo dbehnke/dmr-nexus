@@ -19,21 +19,23 @@ type Server struct {
 	config      config.SystemConfig
 	log         *logger.Logger
 	conn        *net.UDPConn
-	peerManager *peer.PeerManager
-	pingTimeout time.Duration
-	regACL      *peer.ACL
-	subACL      *peer.ACL
-	tg1ACL      *peer.ACL
-	tg2ACL      *peer.ACL
+	peerManager     *peer.PeerManager
+	pingTimeout     time.Duration
+	cleanupInterval time.Duration
+	regACL          *peer.ACL
+	subACL          *peer.ACL
+	tg1ACL          *peer.ACL
+	tg2ACL          *peer.ACL
 }
 
 // NewServer creates a new UDP server for MASTER mode
 func NewServer(cfg config.SystemConfig, log *logger.Logger) *Server {
 	return &Server{
-		config:      cfg,
-		log:         log.WithComponent("network.server"),
-		peerManager: peer.NewPeerManager(),
-		pingTimeout: 30 * time.Second, // Default timeout
+		config:          cfg,
+		log:             log.WithComponent("network.server"),
+		peerManager:     peer.NewPeerManager(),
+		pingTimeout:     30 * time.Second, // Default timeout
+		cleanupInterval: 10 * time.Second, // Default cleanup interval
 	}
 }
 
@@ -425,7 +427,7 @@ func (s *Server) sendMSTCL(peerID uint32, addr *net.UDPAddr) {
 
 // cleanupLoop periodically cleans up timed out peers
 func (s *Server) cleanupLoop(ctx context.Context) error {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(s.cleanupInterval)
 	defer ticker.Stop()
 
 	for {
