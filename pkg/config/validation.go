@@ -92,7 +92,7 @@ func validate(cfg *Config) error {
 			for _, acl := range acls {
 				if acl != "" {
 					if !strings.HasPrefix(acl, "PERMIT:") && !strings.HasPrefix(acl, "DENY:") {
-						return fmt.Errorf("system %s: ACL must start with PERMIT: or DENY:", name)
+						return fmt.Errorf("system %s: ACL must start with PERMIT: or DENY", name)
 					}
 				}
 			}

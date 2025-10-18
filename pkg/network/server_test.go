@@ -49,8 +49,10 @@ func TestServer_StartStop(t *testing.T) {
 		errChan <- srv.Start(ctx)
 	}()
 
-	// Wait a bit for server to start
-	time.Sleep(100 * time.Millisecond)
+	// Wait for server to report started
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
 
 	// Cancel context to stop server
 	cancel()
@@ -77,21 +79,31 @@ func TestServer_HandleRPTL(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go srv.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
+	go func() {
+		if err := srv.Start(ctx); err != nil && err != context.Canceled {
+			t.Logf("srv.Start error: %v", err)
+		}
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
 
 	// Get the actual port the server is listening on
-	if srv.conn == nil {
-		t.Fatal("Server connection is nil")
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
 	}
-	serverAddr := srv.conn.LocalAddr().(*net.UDPAddr)
 
 	// Create client connection
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
 	if err != nil {
 		t.Fatalf("Failed to create client connection: %v", err)
 	}
-	defer clientConn.Close()
+	defer func() {
+		if err := clientConn.Close(); err != nil {
+			t.Logf("clientConn.Close error: %v", err)
+		}
+	}()
 
 	// Send RPTL packet
 	rptl := &protocol.RPTLPacket{
@@ -108,9 +120,14 @@ func TestServer_HandleRPTL(t *testing.T) {
 	}
 
 	// Wait for RPTACK response
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
 	buffer := make([]byte, 1024)
 	n, err := clientConn.Read(buffer)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("Failed to receive RPTACK: %v", err)
 	}
@@ -150,25 +167,44 @@ func TestServer_HandleRPTK(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go srv.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
+	go func() {
+		if err := srv.Start(ctx); err != nil && err != context.Canceled {
+			t.Logf("srv.Start error: %v", err)
+		}
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
 
-	serverAddr := srv.conn.LocalAddr().(*net.UDPAddr)
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
+	}
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
 	if err != nil {
 		t.Fatalf("Failed to create client connection: %v", err)
 	}
-	defer clientConn.Close()
+	defer func() {
+		if err := clientConn.Close(); err != nil {
+			t.Logf("clientConn.Close error: %v", err)
+		}
+	}()
 
 	// Send RPTL first
 	rptl := &protocol.RPTLPacket{RepeaterID: 312000}
 	data, _ := rptl.Encode()
-	clientConn.Write(data)
+	if _, err := clientConn.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
 
 	// Read RPTACK
 	buffer := make([]byte, 1024)
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	clientConn.Read(buffer)
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	if _, err := clientConn.Read(buffer); err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
 
 	// Send RPTK
 	challenge := make([]byte, 32)
@@ -180,11 +216,18 @@ func TestServer_HandleRPTK(t *testing.T) {
 		Challenge:  challenge,
 	}
 	data, _ = rptk.Encode()
-	clientConn.Write(data)
+	if _, err := clientConn.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
 
 	// Read RPTACK response
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
 	n, err := clientConn.Read(buffer)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("Failed to receive RPTACK after RPTK: %v", err)
 	}
@@ -209,32 +252,57 @@ func TestServer_HandleRPTC(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go srv.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
+	go func() {
+		if err := srv.Start(ctx); err != nil && err != context.Canceled {
+			t.Logf("srv.Start error: %v", err)
+		}
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
 
-	serverAddr := srv.conn.LocalAddr().(*net.UDPAddr)
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
+	}
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
 	if err != nil {
 		t.Fatalf("Failed to create client connection: %v", err)
 	}
-	defer clientConn.Close()
+	defer func() {
+		if err := clientConn.Close(); err != nil {
+			t.Logf("clientConn.Close error: %v", err)
+		}
+	}()
 
 	buffer := make([]byte, 1024)
 
 	// Send RPTL
 	rptl := &protocol.RPTLPacket{RepeaterID: 312000}
 	data, _ := rptl.Encode()
-	clientConn.Write(data)
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	clientConn.Read(buffer)
+	if _, err := clientConn.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	if _, err := clientConn.Read(buffer); err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
 
 	// Send RPTK
 	challenge := make([]byte, 32)
 	rptk := &protocol.RPTKPacket{RepeaterID: 312000, Challenge: challenge}
 	data, _ = rptk.Encode()
-	clientConn.Write(data)
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	clientConn.Read(buffer)
+	if _, err := clientConn.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	if _, err := clientConn.Read(buffer); err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
 
 	// Send RPTC
 	rptc := &protocol.RPTCPacket{
@@ -244,11 +312,18 @@ func TestServer_HandleRPTC(t *testing.T) {
 		Description: "Test Repeater",
 	}
 	data, _ = rptc.Encode()
-	clientConn.Write(data)
+	if _, err := clientConn.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
 
 	// Read RPTACK response
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
 	n, err := clientConn.Read(buffer)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("Failed to receive RPTACK after RPTC: %v", err)
 	}
@@ -285,25 +360,45 @@ func TestServer_ACLDeny(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go srv.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- srv.Start(ctx)
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
 
-	serverAddr := srv.conn.LocalAddr().(*net.UDPAddr)
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
+	}
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
 	if err != nil {
 		t.Fatalf("Failed to create client connection: %v", err)
 	}
-	defer clientConn.Close()
+	defer func() {
+		_ = clientConn.Close()
+		cancel()
+		// ensure Start exits before test returns
+		<-errChan
+	}()
 
 	// Send RPTL packet
 	rptl := &protocol.RPTLPacket{RepeaterID: 312000}
 	data, _ := rptl.Encode()
-	clientConn.Write(data)
+	if _, err := clientConn.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
 
 	// Should receive MSTCL (deny) instead of RPTACK
 	buffer := make([]byte, 1024)
-	clientConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := clientConn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
 	_, err = clientConn.Read(buffer)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
 	if err != nil {
 		t.Fatalf("Failed to receive response: %v", err)
 	}
@@ -340,20 +435,34 @@ func TestServer_PeerTimeout(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go srv.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- srv.Start(ctx)
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
 
-	serverAddr := srv.conn.LocalAddr().(*net.UDPAddr)
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
+	}
 	clientConn, err := net.DialUDP("udp", nil, serverAddr)
 	if err != nil {
 		t.Fatalf("Failed to create client connection: %v", err)
 	}
-	defer clientConn.Close()
+	defer func() {
+		_ = clientConn.Close()
+		cancel()
+		<-errChan
+	}()
 
 	// Send RPTL to register peer
 	rptl := &protocol.RPTLPacket{RepeaterID: 312000}
 	data, _ := rptl.Encode()
-	clientConn.Write(data)
+	if _, err := clientConn.Write(data); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
 
 	// Wait for peer to be added
 	time.Sleep(50 * time.Millisecond)

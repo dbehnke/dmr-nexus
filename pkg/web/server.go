@@ -130,9 +130,11 @@ func (s *Server) GetHub() *WebSocketHub {
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  "ok",
 		"service": "dmr-nexus",
 		"time":    time.Now().Unix(),
-	})
+	}); err != nil {
+		s.logger.Warn("Failed to encode health response", logger.Error(err))
+	}
 }

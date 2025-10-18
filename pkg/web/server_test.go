@@ -78,7 +78,11 @@ func TestServer_HealthEndpoint(t *testing.T) {
 	defer cancel()
 
 	// Start server
-	go srv.Start(ctx)
+	go func() {
+		if err := srv.Start(ctx); err != nil && err != context.Canceled && err != http.ErrServerClosed {
+			t.Logf("srv.Start error: %v", err)
+		}
+	}()
 	time.Sleep(100 * time.Millisecond)
 
 	// Get the actual address the server is listening on
@@ -92,7 +96,11 @@ func TestServer_HealthEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to request health endpoint: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Logf("resp.Body.Close error: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
