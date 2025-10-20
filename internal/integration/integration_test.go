@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -201,10 +202,11 @@ func TestMultipleMockPeers(t *testing.T) {
 	numPeers := 10
 	peers := make([]*testhelpers.MockPeer, numPeers)
 	for i := 0; i < numPeers; i++ {
+		callsign := fmt.Sprintf("PEER%d", i)
 		peers[i] = suite.CreateMockPeer(
 			uint32(312000+i),
 			"password",
-			"PEER"+string(rune('A'+i)),
+			callsign,
 		)
 	}
 
@@ -235,10 +237,10 @@ func TestMetricsConcurrency(t *testing.T) {
 	collector := metrics.NewCollector()
 
 	// Simulate concurrent peer connections
-	numGoroutines := 50
-	done := make(chan bool, numGoroutines)
+	const maxConcurrentPeers = 50
+	done := make(chan bool, maxConcurrentPeers)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := 0; i < maxConcurrentPeers; i++ {
 		go func(id int) {
 			peerID := uint32(312000 + id)
 			collector.PeerConnected(peerID)
@@ -255,13 +257,13 @@ func TestMetricsConcurrency(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < numGoroutines; i++ {
+	for i := 0; i < maxConcurrentPeers; i++ {
 		<-done
 	}
 
 	// Verify metrics
-	expectedPackets := uint64(numGoroutines * 10)
-	expectedBytes := uint64(numGoroutines * 10 * 53)
+	expectedPackets := uint64(maxConcurrentPeers * 10)
+	expectedBytes := uint64(maxConcurrentPeers * 10 * 53)
 
 	if collector.GetPacketsReceived() != expectedPackets {
 		t.Errorf("Expected %d packets, got %d", expectedPackets, collector.GetPacketsReceived())
