@@ -62,9 +62,10 @@ func (s *SubscriptionState) Update(opts *SubscriptionOptions) error {
 	}
 
 	// Handle UNLINK
-	if opts.UnlinkTS == 1 {
+	switch opts.UnlinkTS {
+	case 1:
 		s.TS1 = make(map[uint32]time.Time)
-	} else if opts.UnlinkTS == 2 {
+	case 2:
 		s.TS2 = make(map[uint32]time.Time)
 	}
 
@@ -255,9 +256,10 @@ func ParseOptions(input string) (*SubscriptionOptions, error) {
 
 		case "UNLINK":
 			ts := strings.ToUpper(value)
-			if ts == "TS1" {
+			switch ts {
+			case "TS1":
 				opts.UnlinkTS = 1
-			} else if ts == "TS2" {
+			case "TS2":
 				opts.UnlinkTS = 2
 			}
 		}

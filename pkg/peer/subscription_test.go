@@ -281,7 +281,9 @@ func TestSubscriptionState_UpdateWithDropAll(t *testing.T) {
 		TS1: []uint32{3100, 3101},
 		TS2: []uint32{91},
 	}
-	state.Update(opts)
+	if err := state.Update(opts); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	// Drop all
 	dropOpts := &SubscriptionOptions{
@@ -309,7 +311,9 @@ func TestSubscriptionState_UpdateWithUnlink(t *testing.T) {
 		TS1: []uint32{3100, 3101},
 		TS2: []uint32{91, 92},
 	}
-	state.Update(opts)
+	if err := state.Update(opts); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	// Unlink TS1
 	unlinkOpts := &SubscriptionOptions{
@@ -332,7 +336,9 @@ func TestSubscriptionState_UpdateWithUnlink(t *testing.T) {
 	unlinkOpts2 := &SubscriptionOptions{
 		UnlinkTS: 2,
 	}
-	state.Update(unlinkOpts2)
+	if err := state.Update(unlinkOpts2); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	// Verify TS2 cleared
 	if len(state.TS2) != 0 {
@@ -347,7 +353,9 @@ func TestSubscriptionState_HasTalkgroup(t *testing.T) {
 		TS1: []uint32{3100, 3101},
 		TS2: []uint32{91},
 	}
-	state.Update(opts)
+	if err := state.Update(opts); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	tests := []struct {
 		name     string
@@ -381,7 +389,9 @@ func TestSubscriptionState_GetTalkgroups(t *testing.T) {
 		TS1: []uint32{3100, 3101, 3102},
 		TS2: []uint32{91, 92},
 	}
-	state.Update(opts)
+	if err := state.Update(opts); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	ts1 := state.GetTalkgroups(1)
 	if len(ts1) != 3 {
@@ -413,7 +423,9 @@ func TestSubscriptionState_IsExpired(t *testing.T) {
 		TS1:  []uint32{3100},
 		Auto: 2, // 2 seconds
 	}
-	state.Update(opts)
+	if err := state.Update(opts); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	// Should not be expired yet
 	if state.IsExpired() {
@@ -438,7 +450,9 @@ func TestSubscriptionState_Clear(t *testing.T) {
 		TS2:  []uint32{91},
 		Auto: 600,
 	}
-	state.Update(opts)
+	if err := state.Update(opts); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	// Clear
 	state.Clear()
@@ -482,7 +496,9 @@ func TestSubscriptionState_ConcurrentAccess(t *testing.T) {
 		TS1: []uint32{3100},
 		TS2: []uint32{91},
 	}
-	state.Update(opts)
+	if err := state.Update(opts); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
 
 	// Concurrent reads and writes
 	done := make(chan bool)
@@ -503,7 +519,7 @@ func TestSubscriptionState_ConcurrentAccess(t *testing.T) {
 			opts := &SubscriptionOptions{
 				TS1: []uint32{3100 + uint32(i)},
 			}
-			state.Update(opts)
+			_ = state.Update(opts) // Ignore error in concurrent test
 			time.Sleep(time.Millisecond)
 		}
 		done <- true

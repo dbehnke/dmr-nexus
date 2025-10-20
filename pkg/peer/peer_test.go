@@ -346,7 +346,9 @@ func TestPeer_GetSubscriptions(t *testing.T) {
 	opts := &SubscriptionOptions{
 		TS1: []uint32{3100},
 	}
-	peer.UpdateSubscriptions(opts)
+	if err := peer.UpdateSubscriptions(opts); err != nil {
+		t.Fatalf("UpdateSubscriptions() error = %v", err)
+	}
 
 	// Verify we can get them
 	subs = peer.GetSubscriptions()
