@@ -7,19 +7,46 @@ import (
 	"github.com/dbehnke/dmr-nexus/pkg/protocol"
 )
 
+// PeerSubscriptionChecker is a function that checks if a peer has a subscription
+type PeerSubscriptionChecker func(peerID uint32, tgid uint32, timeslot int) bool
+
 // Router manages conference bridge routing between systems
 type Router struct {
-	bridges       map[string]*BridgeRuleSet
-	streamTracker *StreamTracker
-	mu            sync.RWMutex
+	bridges              map[string]*BridgeRuleSet
+	streamTracker        *StreamTracker
+	subscriptionChecker  PeerSubscriptionChecker
+	peerIDToSystemName   map[uint32]string // Maps peer IDs to system names
+	mu                   sync.RWMutex
 }
 
 // NewRouter creates a new router instance
 func NewRouter() *Router {
 	return &Router{
-		bridges:       make(map[string]*BridgeRuleSet),
-		streamTracker: NewStreamTracker(),
+		bridges:            make(map[string]*BridgeRuleSet),
+		streamTracker:      NewStreamTracker(),
+		peerIDToSystemName: make(map[uint32]string),
 	}
+}
+
+// SetSubscriptionChecker sets the function to check peer subscriptions
+func (r *Router) SetSubscriptionChecker(checker PeerSubscriptionChecker) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.subscriptionChecker = checker
+}
+
+// RegisterPeer registers a peer ID to system name mapping
+func (r *Router) RegisterPeer(peerID uint32, systemName string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.peerIDToSystemName[peerID] = systemName
+}
+
+// UnregisterPeer removes a peer ID to system name mapping
+func (r *Router) UnregisterPeer(peerID uint32) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.peerIDToSystemName, peerID)
 }
 
 // AddBridge adds a bridge rule set to the router
@@ -36,7 +63,7 @@ func (r *Router) GetBridge(name string) *BridgeRuleSet {
 	return r.bridges[name]
 }
 
-// RoutePacket routes a DMR packet based on bridge rules
+// RoutePacket routes a DMR packet based on bridge rules and peer subscriptions
 // Returns a list of target systems to forward the packet to
 func (r *Router) RoutePacket(packet *protocol.DMRDPacket, sourceSystem string) []string {
 	// Check if this is a terminator frame - end the stream after processing
@@ -55,15 +82,37 @@ func (r *Router) RoutePacket(packet *protocol.DMRDPacket, sourceSystem string) [
 
 	// Find matching bridge rules across all bridges
 	targets := make([]string, 0)
+	targetSet := make(map[string]bool) // Use set to avoid duplicates
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	// Check static bridge rules
 	for _, bridge := range r.bridges {
 		matches := bridge.GetMatchingRules(packet.DestinationID, packet.Timeslot, sourceSystem)
 		for _, rule := range matches {
-			targets = append(targets, rule.System)
+			targetSet[rule.System] = true
 		}
+	}
+
+	// Check dynamic peer subscriptions
+	if r.subscriptionChecker != nil {
+		for peerID, systemName := range r.peerIDToSystemName {
+			// Skip the source system
+			if systemName == sourceSystem {
+				continue
+			}
+
+			// Check if this peer has a subscription for this talkgroup/timeslot
+			if r.subscriptionChecker(peerID, packet.DestinationID, packet.Timeslot) {
+				targetSet[systemName] = true
+			}
+		}
+	}
+
+	// Convert set to slice
+	for target := range targetSet {
+		targets = append(targets, target)
 	}
 
 	return targets

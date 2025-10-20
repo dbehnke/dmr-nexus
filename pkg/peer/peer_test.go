@@ -232,3 +232,140 @@ func TestConnectionState_String(t *testing.T) {
 		})
 	}
 }
+
+func TestPeer_HasSubscription(t *testing.T) {
+	addr := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 62031}
+	peer := NewPeer(312000, addr)
+
+	// Initially no subscriptions
+	if peer.HasSubscription(3100, 1) {
+		t.Error("New peer should have no subscriptions")
+	}
+
+	// Add subscriptions
+	opts := &SubscriptionOptions{
+		TS1: []uint32{3100, 3101},
+		TS2: []uint32{91},
+	}
+	err := peer.UpdateSubscriptions(opts)
+	if err != nil {
+		t.Fatalf("UpdateSubscriptions error: %v", err)
+	}
+
+	// Check subscriptions
+	if !peer.HasSubscription(3100, 1) {
+		t.Error("Should have subscription for TG 3100 TS1")
+	}
+	if !peer.HasSubscription(3101, 1) {
+		t.Error("Should have subscription for TG 3101 TS1")
+	}
+	if !peer.HasSubscription(91, 2) {
+		t.Error("Should have subscription for TG 91 TS2")
+	}
+	if peer.HasSubscription(3102, 1) {
+		t.Error("Should not have subscription for TG 3102 TS1")
+	}
+}
+
+func TestPeer_SetConfig_WithOptions(t *testing.T) {
+	addr := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 62031}
+	peer := NewPeer(312000, addr)
+
+	// Create RPTC packet with OPTIONS in Description
+	config := &protocol.RPTCPacket{
+		RepeaterID:  312000,
+		Callsign:    "W1ABC",
+		Description: "My Pi-Star | OPTIONS: TS1=3100,3101;TS2=91;AUTO=600",
+		Location:    "Boston, MA",
+	}
+
+	peer.SetConfig(config)
+
+	// Check that config was set
+	if peer.Callsign != "W1ABC" {
+		t.Errorf("Callsign = %s, want W1ABC", peer.Callsign)
+	}
+	if peer.Location != "Boston, MA" {
+		t.Errorf("Location = %s, want Boston, MA", peer.Location)
+	}
+
+	// Check that subscriptions were parsed and applied
+	if !peer.HasSubscription(3100, 1) {
+		t.Error("Should have subscription for TG 3100 TS1 from OPTIONS")
+	}
+	if !peer.HasSubscription(3101, 1) {
+		t.Error("Should have subscription for TG 3101 TS1 from OPTIONS")
+	}
+	if !peer.HasSubscription(91, 2) {
+		t.Error("Should have subscription for TG 91 TS2 from OPTIONS")
+	}
+
+	// Check TTL was set
+	subscriptions := peer.GetSubscriptions()
+	if subscriptions.AutoTTL != 600*time.Second {
+		t.Errorf("AutoTTL = %v, want %v", subscriptions.AutoTTL, 600*time.Second)
+	}
+}
+
+func TestPeer_SetConfig_NoOptions(t *testing.T) {
+	addr := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 62031}
+	peer := NewPeer(312000, addr)
+
+	// Create RPTC packet without OPTIONS
+	config := &protocol.RPTCPacket{
+		RepeaterID:  312000,
+		Callsign:    "W1ABC",
+		Description: "Just a regular description",
+		Location:    "Boston, MA",
+	}
+
+	peer.SetConfig(config)
+
+	// Check that config was set
+	if peer.Callsign != "W1ABC" {
+		t.Errorf("Callsign = %s, want W1ABC", peer.Callsign)
+	}
+
+	// Check that no subscriptions were added
+	if peer.HasSubscription(3100, 1) {
+		t.Error("Should not have subscription when no OPTIONS provided")
+	}
+}
+
+func TestPeer_GetSubscriptions(t *testing.T) {
+	addr := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 62031}
+	peer := NewPeer(312000, addr)
+
+	// Get initial subscriptions
+	subs := peer.GetSubscriptions()
+	if subs == nil {
+		t.Fatal("GetSubscriptions returned nil")
+	}
+
+	// Add some subscriptions
+	opts := &SubscriptionOptions{
+		TS1: []uint32{3100},
+	}
+	if err := peer.UpdateSubscriptions(opts); err != nil {
+		t.Fatalf("UpdateSubscriptions() error = %v", err)
+	}
+
+	// Verify we can get them
+	subs = peer.GetSubscriptions()
+	if len(subs.GetTalkgroups(1)) != 1 {
+		t.Error("Should have 1 subscription on TS1")
+	}
+}
+
+func TestPeer_NewHasSubscriptionsInitialized(t *testing.T) {
+	addr := &net.UDPAddr{IP: net.ParseIP("192.168.1.100"), Port: 62031}
+	peer := NewPeer(312000, addr)
+
+	if peer.Subscriptions == nil {
+		t.Error("NewPeer should initialize Subscriptions")
+	}
+
+	// Should not panic when accessing
+	_ = peer.HasSubscription(3100, 1)
+	_ = peer.GetSubscriptions()
+}

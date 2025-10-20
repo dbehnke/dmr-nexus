@@ -69,15 +69,19 @@ type Peer struct {
 	PacketsSent     uint64
 	BytesSent       uint64
 
+	// Dynamic subscription state
+	Subscriptions *SubscriptionState
+
 	mu sync.RWMutex
 }
 
 // NewPeer creates a new peer with the given ID and address
 func NewPeer(id uint32, addr *net.UDPAddr) *Peer {
 	return &Peer{
-		ID:      id,
-		Address: addr,
-		State:   StateDisconnected,
+		ID:            id,
+		Address:       addr,
+		State:         StateDisconnected,
+		Subscriptions: NewSubscriptionState(),
 	}
 }
 
@@ -155,6 +159,15 @@ func (p *Peer) SetConfig(config *protocol.RPTCPacket) {
 	p.URL = config.URL
 	p.SoftwareID = config.SoftwareID
 	p.PackageID = config.PackageID
+
+	// Parse and update subscription options from Description field
+	optionsStr := ExtractOptionsFromDescription(config.Description)
+	if optionsStr != "" {
+		if opts, err := ParseOptions(optionsStr); err == nil {
+			// Update subscriptions (ignoring errors for backward compatibility)
+			_ = p.Subscriptions.Update(opts)
+		}
+	}
 }
 
 // IncrementPacketsReceived increments the packets received counter
@@ -196,3 +209,39 @@ func (p *Peer) GetUptime() time.Duration {
 
 	return time.Since(p.ConnectedAt)
 }
+
+// HasSubscription checks if the peer has a dynamic subscription for the given talkgroup
+func (p *Peer) HasSubscription(tgid uint32, timeslot int) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	// Convert int timeslot to uint8 for subscription check
+	var ts uint8
+	switch timeslot {
+	case 1:
+		ts = 1
+	case 2:
+		ts = 2
+	default:
+		return false
+	}
+
+	return p.Subscriptions.HasTalkgroup(tgid, ts)
+}
+
+// GetSubscriptions returns the current subscription state (read-only)
+func (p *Peer) GetSubscriptions() *SubscriptionState {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	return p.Subscriptions
+}
+
+// UpdateSubscriptions updates the peer's subscription state
+func (p *Peer) UpdateSubscriptions(opts *SubscriptionOptions) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.Subscriptions.Update(opts)
+}
+

@@ -336,3 +336,224 @@ func TestRouter_CleanupStreams(t *testing.T) {
 		t.Error("Stream should be cleaned up")
 	}
 }
+
+func TestRouter_RoutePacket_WithPeerSubscriptions(t *testing.T) {
+	router := NewRouter()
+
+	// Register some peers
+	router.RegisterPeer(312000, "PEER-312000")
+	router.RegisterPeer(312001, "PEER-312001")
+
+	// Set up subscription checker - PEER-312001 has subscription for TG 3100 TS1
+	router.SetSubscriptionChecker(func(peerID uint32, tgid uint32, timeslot int) bool {
+		return peerID == 312001 && tgid == 3100 && timeslot == 1
+	})
+
+	// Create a packet for TG 3100
+	packet := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      312000,
+		DestinationID: 3100,
+		RepeaterID:    312000,
+		Timeslot:      1,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		StreamID:      12345,
+	}
+
+	// Route the packet - should include peer with dynamic subscription
+	targets := router.RoutePacket(packet, "PEER-312000")
+
+	// Should include PEER-312001 (has subscription for TG 3100 TS1)
+	found := false
+	for _, target := range targets {
+		if target == "PEER-312001" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("Should route to PEER-312001 with dynamic subscription")
+	}
+
+	// Should not include source peer
+	for _, target := range targets {
+		if target == "PEER-312000" {
+			t.Error("Should not route back to source peer")
+		}
+	}
+}
+
+func TestRouter_RoutePacket_SubscriptionNoMatch(t *testing.T) {
+	router := NewRouter()
+
+	router.RegisterPeer(312000, "PEER-312000")
+	router.RegisterPeer(312001, "PEER-312001")
+
+	// Set up subscription checker - PEER-312001 has subscription for TG 3100 TS1 only
+	router.SetSubscriptionChecker(func(peerID uint32, tgid uint32, timeslot int) bool {
+		return peerID == 312001 && tgid == 3100 && timeslot == 1
+	})
+
+	// Create a packet for TG 9999 (no subscriptions)
+	packet := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      312000,
+		DestinationID: 9999,
+		RepeaterID:    312000,
+		Timeslot:      1,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		StreamID:      12345,
+	}
+
+	targets := router.RoutePacket(packet, "PEER-312000")
+
+	// Should not include any peers (no subscriptions for TG 9999)
+	if len(targets) != 0 {
+		t.Errorf("Should have no targets, got %d", len(targets))
+	}
+}
+
+func TestRouter_RoutePacket_SubscriptionWrongTimeslot(t *testing.T) {
+	router := NewRouter()
+
+	router.RegisterPeer(312000, "PEER-312000")
+	router.RegisterPeer(312001, "PEER-312001")
+
+	// Set up subscription checker - PEER-312001 has subscription for TG 3100 TS1 only
+	router.SetSubscriptionChecker(func(peerID uint32, tgid uint32, timeslot int) bool {
+		return peerID == 312001 && tgid == 3100 && timeslot == 1
+	})
+
+	// Create a packet for TG 3100 but on TS2 (subscription is for TS1)
+	packet := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      312000,
+		DestinationID: 3100,
+		RepeaterID:    312000,
+		Timeslot:      2,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		StreamID:      12345,
+	}
+
+	targets := router.RoutePacket(packet, "PEER-312000")
+
+	// Should not include PEER-312001 (subscription is for TS1, not TS2)
+	for _, target := range targets {
+		if target == "PEER-312001" {
+			t.Error("Should not route to PEER-312001 on wrong timeslot")
+		}
+	}
+}
+
+func TestRouter_RoutePacket_CombinesBridgeAndSubscriptions(t *testing.T) {
+	router := NewRouter()
+
+	router.RegisterPeer(312000, "PEER-312000")
+	router.RegisterPeer(312001, "PEER-312001")
+
+	// Set up subscription checker - PEER-312001 has subscription for TG 3100 TS1
+	router.SetSubscriptionChecker(func(peerID uint32, tgid uint32, timeslot int) bool {
+		return peerID == 312001 && tgid == 3100 && timeslot == 1
+	})
+
+	// Add a static bridge rule for TG 3100
+	bridge := NewBridgeRuleSet("NATIONWIDE")
+	bridge.AddRule(&BridgeRule{
+		System:   "STATIC-SYSTEM",
+		TGID:     3100,
+		Timeslot: 1,
+		Active:   true,
+	})
+	router.AddBridge(bridge)
+
+	// Create a packet for TG 3100 TS1
+	packet := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      312000,
+		DestinationID: 3100,
+		RepeaterID:    312000,
+		Timeslot:      1,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		StreamID:      12345,
+	}
+
+	targets := router.RoutePacket(packet, "PEER-312000")
+
+	// Should include both: STATIC-SYSTEM (bridge) and PEER-312001 (subscription)
+	hasStatic := false
+	hasDynamic := false
+	for _, target := range targets {
+		if target == "STATIC-SYSTEM" {
+			hasStatic = true
+		}
+		if target == "PEER-312001" {
+			hasDynamic = true
+		}
+	}
+
+	if !hasStatic {
+		t.Error("Should include STATIC-SYSTEM from bridge rules")
+	}
+	if !hasDynamic {
+		t.Error("Should include PEER-312001 from dynamic subscription")
+	}
+}
+
+func TestRouter_RegisterUnregisterPeer(t *testing.T) {
+	router := NewRouter()
+
+	// Register a peer
+	router.RegisterPeer(312000, "PEER-312000")
+
+	// Verify it's registered
+	router.mu.RLock()
+	systemName, exists := router.peerIDToSystemName[312000]
+	router.mu.RUnlock()
+
+	if !exists {
+		t.Error("Peer should be registered")
+	}
+	if systemName != "PEER-312000" {
+		t.Errorf("System name = %s, want PEER-312000", systemName)
+	}
+
+	// Unregister the peer
+	router.UnregisterPeer(312000)
+
+	// Verify it's unregistered
+	router.mu.RLock()
+	_, exists = router.peerIDToSystemName[312000]
+	router.mu.RUnlock()
+
+	if exists {
+		t.Error("Peer should be unregistered")
+	}
+}
+
+func TestRouter_SetSubscriptionChecker(t *testing.T) {
+	router := NewRouter()
+
+	// Initially no checker
+	if router.subscriptionChecker != nil {
+		t.Error("Should have no subscription checker initially")
+	}
+
+	// Set a checker
+	called := false
+	router.SetSubscriptionChecker(func(peerID uint32, tgid uint32, timeslot int) bool {
+		called = true
+		return false
+	})
+
+	// Verify checker was set
+	if router.subscriptionChecker == nil {
+		t.Error("Subscription checker should be set")
+	}
+
+	// Call the checker
+	router.subscriptionChecker(312000, 3100, 1)
+	if !called {
+		t.Error("Subscription checker should have been called")
+	}
+}
+
