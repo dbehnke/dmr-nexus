@@ -57,3 +57,5 @@ frontend/yarn-error.log*
 tmp/
 temp/
 *.tmp
+
+dmr-nexus.yaml

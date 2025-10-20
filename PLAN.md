@@ -657,7 +657,72 @@ dmr-nexus/
 - `pkg/metrics/prometheus.go`
 - `internal/testhelpers/*.go`
 
-### Phase 7: CI/CD & Release (Week 11)
+### Phase 7: Dynamic Subscription Options (Weeks 12-13)
+
+Enable connections (peers/hotspots) to dynamically set their talkgroup subscription options at runtime using an "options" string similar to FreeDMR. This allows operators to adjust static talkgroups, timers, and behavior without editing server-side bridge configs.
+
+References
+- FreeDMR concept overview: https://www.freedmr.uk/index.php/static-talk-groups-pi-star/#In
+
+Objectives
+- Provide a safe, authenticated way for a connected PEER to request:
+  - Static talkgroups per timeslot (e.g., TS1: 3100,3101; TS2: 91)
+  - Auto-static/TTL (expiry for dynamically added TGs)
+  - Optional unlink/drop semantics (clear active/static TGs)
+  - Optional per-peer timeslot enable/disable hints
+- Maintain strict compatibility: default behavior unchanged when no options are supplied.
+- Ensure server-side ACLs, repeat, and router rules remain authoritative and enforced.
+
+Design at a glance
+- Options carrier: without changing HBP wire format initially, accept an options string embedded in the existing RPTC metadata fields (prefer URL or Description) or expose a small authenticated HTTP/WS API for options (recommended for clarity and future-proofing). The server parses and applies per-peer subscription state.
+- Server state: add a per-peer SubscriptionState that tracks:
+  - Static TGs per timeslot (explicit list)
+  - Auto-static TTL (duration)
+  - Last-update timestamp and source (RPTC vs API)
+- Routing: router consults dynamic per-peer subscriptions in addition to config bridges; dynamic rules are ephemeral and enforced per-peer, merged with bridge rules, still honoring ACLs and stream dedupe.
+- Timers: use existing `pkg/bridge/timer.go` (TimerManager) or a lightweight per-peer timer to expire auto-static entries after TTL.
+
+Proposed options syntax (example)
+- Semicolon-separated key/value pairs. Keys are case-insensitive. Values are comma-separated lists or scalars.
+  - `TS1=3100,3101` — static talkgroups for timeslot 1
+  - `TS2=91` — static talkgroups for timeslot 2
+  - `AUTO=600` — auto-static TTL seconds (e.g., 10 minutes)
+  - `DROP=ALL` — clear existing static TGs
+  - `UNLINK=TS2` — clear TS2 only
+
+Examples
+- Embed in RPTC Description (backward-compatible approach):
+  - Description: `My Pi-Star | OPTIONS: TS1=3100,3101;TS2=91;AUTO=600`
+- Via REST (preferred long-term):
+  - `POST /api/peers/{peer_id}/options` with JSON body `{ "ts1": [3100,3101], "ts2": [91], "auto": 600 }`
+
+Validation & security
+- Only accept options for an authenticated, connected peer.
+- Enforce global/system ACLs on any requested TGs (deny invalid/forbidden TGs).
+- Bound list sizes and TTL ranges (e.g., max 50 statics, TTL 0-3600s default 600).
+- Log all changes with peer metadata for auditing.
+
+Backwards compatibility
+- If no options are provided, behavior is unchanged (routing via static `bridges:` only).
+- Options never override ACL decisions; bridge rules remain in effect and are combined with per-peer dynamics.
+
+Web UI
+- Show per-peer static TGs (TS1/TS2) and TTL/expiry.
+- Allow admin override (clear, set, extend) via dashboard.
+
+Deliverables
+- Server: options parser (RPTC Description/URL) and/or REST endpoint; per-peer SubscriptionState; integration with router; timers for auto-static expiry.
+- Config: none required to use, but add toggles under `systems.*` to enable/disable dynamic options per system.
+- API: minimal endpoints to set/get peer options; auth reuse from existing web server.
+- Tests: unit tests for parser, state merge, expiry; integration test exercising a peer supplying options and receiving routed traffic accordingly.
+
+Acceptance criteria
+- Given a connected peer with `OPTIONS: TS1=3100,3101;TS2=91;AUTO=600`, the peer receives forwarded traffic for those TGs (subject to ACLs) without any additional bridge entries.
+- After 600s of no updates, auto-static entries expire and routing reverts accordingly.
+- OPTIONS omitted → no change from current behavior.
+- Lint/tests pass; docs updated (README + API).
+
+### Phase 8: CI/CD & Release (Week 11)
 
 **Deliverables:**
 - [ ] Dagger CI/CD pipeline
