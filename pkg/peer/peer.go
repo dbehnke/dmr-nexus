@@ -211,11 +211,22 @@ func (p *Peer) GetUptime() time.Duration {
 }
 
 // HasSubscription checks if the peer has a dynamic subscription for the given talkgroup
-func (p *Peer) HasSubscription(tgid uint32, timeslot uint8) bool {
+func (p *Peer) HasSubscription(tgid uint32, timeslot int) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	return p.Subscriptions.HasTalkgroup(tgid, timeslot)
+	// Convert int timeslot to uint8 for subscription check
+	var ts uint8
+	switch timeslot {
+	case 1:
+		ts = 1
+	case 2:
+		ts = 2
+	default:
+		return false
+	}
+
+	return p.Subscriptions.HasTalkgroup(tgid, ts)
 }
 
 // GetSubscriptions returns the current subscription state (read-only)
