@@ -69,7 +69,7 @@ func New(config Config, log *logger.Logger) *Publisher {
 	if log == nil {
 		log = logger.New(logger.Config{Level: "info", Format: "text"})
 	}
-	
+
 	return &Publisher{
 		config: config,
 		log:    log.WithComponent("mqtt"),
@@ -90,7 +90,7 @@ func (p *Publisher) Start(ctx context.Context) error {
 	// TODO: Implement actual MQTT connection when paho.mqtt library is added
 	// For now, this is a no-op stub that allows the application to start
 	p.log.Warn("MQTT connection not yet implemented - events will not be published")
-	
+
 	return nil
 }
 

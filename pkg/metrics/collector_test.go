@@ -43,7 +43,7 @@ func TestCollector_PacketMetrics(t *testing.T) {
 	// Test recording received packets
 	collector.PacketReceived("DMRD")
 	collector.PacketReceived("RPTL")
-	
+
 	received := collector.GetPacketsReceived()
 	if received < 2 {
 		t.Errorf("Expected at least 2 received packets, got %d", received)

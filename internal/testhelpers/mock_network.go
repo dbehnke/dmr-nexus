@@ -7,8 +7,8 @@ import (
 
 // MockNetwork simulates a network for testing
 type MockNetwork struct {
-	mu         sync.RWMutex
-	listeners  map[string]*MockListener
+	mu          sync.RWMutex
+	listeners   map[string]*MockListener
 	sentPackets []MockPacket
 }
 
@@ -21,11 +21,11 @@ type MockPacket struct {
 
 // MockListener is a mock UDP listener
 type MockListener struct {
-	addr     *net.UDPAddr
-	conn     *net.UDPConn
-	packets  chan []byte
-	closed   bool
-	mu       sync.RWMutex
+	addr    *net.UDPAddr
+	conn    *net.UDPConn
+	packets chan []byte
+	closed  bool
+	mu      sync.RWMutex
 }
 
 // NewMockNetwork creates a new mock network

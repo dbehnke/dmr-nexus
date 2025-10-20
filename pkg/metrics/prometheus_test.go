@@ -14,7 +14,7 @@ import (
 func TestNewPrometheusHandler(t *testing.T) {
 	collector := NewCollector()
 	handler := NewPrometheusHandler(collector)
-	
+
 	if handler == nil {
 		t.Fatal("Expected non-nil handler")
 	}
@@ -95,7 +95,7 @@ func TestPrometheusServer(t *testing.T) {
 	defer cancel()
 
 	server := NewPrometheusServer(config, collector, nil)
-	
+
 	// Start server in background
 	errChan := make(chan error, 1)
 	go func() {
@@ -128,7 +128,7 @@ func TestPrometheusServer_Disabled(t *testing.T) {
 
 	ctx := context.Background()
 	server := NewPrometheusServer(config, collector, nil)
-	
+
 	err := server.Start(ctx)
 	if err != nil {
 		t.Errorf("Expected no error when disabled, got %v", err)

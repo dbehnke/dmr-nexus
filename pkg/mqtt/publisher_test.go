@@ -86,11 +86,11 @@ func TestPublisher_PublishTrafficEvent(t *testing.T) {
 	pub := New(config, nil)
 
 	event := TrafficEvent{
-		SourceID:    123456,
-		DestID:      3100,
-		Timeslot:    1,
-		StreamID:    12345678,
-		Timestamp:   time.Now(),
+		SourceID:  123456,
+		DestID:    3100,
+		Timeslot:  1,
+		StreamID:  12345678,
+		Timestamp: time.Now(),
 	}
 
 	err := pub.PublishTraffic(event)
@@ -126,10 +126,10 @@ func TestPublisher_PublishBridgeEvent(t *testing.T) {
 // TestTopicFormat tests topic formatting
 func TestTopicFormat(t *testing.T) {
 	tests := []struct {
-		name       string
-		prefix     string
-		suffix     string
-		expected   string
+		name     string
+		prefix   string
+		suffix   string
+		expected string
 	}{
 		{
 			name:     "simple topic",
@@ -217,7 +217,7 @@ func TestEventSerialization(t *testing.T) {
 				Enabled: false,
 			}
 			pub := New(config, nil)
-			
+
 			_, err := pub.serializeEvent(tt.event)
 			if err != nil {
 				t.Errorf("Failed to serialize %s: %v", tt.name, err)
