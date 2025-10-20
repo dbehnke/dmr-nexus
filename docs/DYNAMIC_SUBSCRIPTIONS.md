@@ -82,7 +82,7 @@ This will:
 
 - **Maximum talkgroups**: 50 per timeslot
 - **AUTO range**: 0-3600 seconds (0-60 minutes)
-- **Default AUTO**: 600 seconds (10 minutes) if not specified
+- **AUTO default**: If not specified, subscriptions do not expire (permanent until changed)
 
 Invalid options are silently ignored for backward compatibility.
 
