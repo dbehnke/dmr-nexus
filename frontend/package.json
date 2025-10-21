@@ -8,7 +8,9 @@
     "serve": "vite preview --port 5173"
   },
   "dependencies": {
-    "vue": "^3.3.0"
+    "vue": "^3.3.0",
+    "vue-router": "^4.2.0",
+    "axios": "^1.4.0"
   },
   "devDependencies": {
     "vite": "^5.0.0",
