@@ -22,10 +22,15 @@ type DMRDPacket struct {
 
 // Parse parses a DMRD packet from raw bytes
 func (p *DMRDPacket) Parse(data []byte) error {
-	// Validate packet size
-	if len(data) != DMRDPacketSize && len(data) != DMRDOpenBridgePacketSize {
-		return fmt.Errorf("invalid DMRD packet size: %d (expected %d or %d)",
-			len(data), DMRDPacketSize, DMRDOpenBridgePacketSize)
+	// Validate packet size - support multiple variants
+	// 53 bytes: Standard HBP
+	// 55 bytes: DroidStar/client variant (adds 2 bytes BER+RSSI at end)
+	// 73 bytes: OpenBridge with HMAC-SHA1
+	if len(data) != DMRDPacketSize &&
+		len(data) != DMRDPacketSizeDroidStar &&
+		len(data) != DMRDOpenBridgePacketSize {
+		return fmt.Errorf("invalid DMRD packet size: %d (expected 53, 55, or 73)",
+			len(data))
 	}
 
 	// Validate signature

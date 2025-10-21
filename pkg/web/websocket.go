@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
+	"github.com/gorilla/websocket"
 )
 
 // Event represents a WebSocket event to be broadcast to clients
@@ -25,6 +26,7 @@ func (e *Event) Marshal() ([]byte, error) {
 // Client represents a WebSocket client connection
 type Client struct {
 	ID       string
+	conn     *websocket.Conn
 	messages chan []byte
 }
 
@@ -121,18 +123,40 @@ func (h *WebSocketHub) Broadcast(event Event) {
 
 // Handler returns an HTTP handler for WebSocket connections
 func (h *WebSocketHub) Handler() http.Handler {
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin:     func(r *http.Request) bool { return true },
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// For now, return a simple response indicating WebSocket endpoint
-		// In a full implementation, this would upgrade the connection
-		// using gorilla/websocket or similar library
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		if err := json.NewEncoder(w).Encode(map[string]interface{}{
-			"endpoint": "websocket",
-			"status":   "available",
-		}); err != nil {
-			h.logger.Warn("Failed to encode websocket handler response", logger.Error(err))
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			http.Error(w, "websocket upgrade failed", http.StatusBadRequest)
+			return
 		}
+		client := &Client{ID: r.RemoteAddr, conn: conn, messages: make(chan []byte, 256)}
+		h.register <- client
+
+		// Reader goroutine: drain read to detect close
+		go func() {
+			defer func() {
+				h.unregister <- client
+				_ = client.conn.Close()
+			}()
+			client.conn.SetReadLimit(1024)
+			for {
+				if _, _, err := client.conn.ReadMessage(); err != nil {
+					return
+				}
+			}
+		}()
+
+		// Writer loop
+		go func() {
+			for msg := range client.messages {
+				_ = client.conn.WriteMessage(websocket.TextMessage, msg)
+			}
+		}()
 	})
 }
 
@@ -141,4 +165,27 @@ func (h *WebSocketHub) GetClientCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
+}
+
+// Helper broadcasters for common event types
+func (h *WebSocketHub) BroadcastPeerConnected(id uint32, callsign string, addr string) {
+	h.Broadcast(Event{
+		Type:      "peer_connected",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"id":       id,
+			"callsign": callsign,
+			"addr":     addr,
+		},
+	})
+}
+
+func (h *WebSocketHub) BroadcastPeerDisconnected(id uint32) {
+	h.Broadcast(Event{
+		Type:      "peer_disconnected",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"id": id,
+		},
+	})
 }

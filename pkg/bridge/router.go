@@ -12,17 +12,29 @@ type PeerSubscriptionChecker func(peerID uint32, tgid uint32, timeslot int) bool
 
 // Router manages conference bridge routing between systems
 type Router struct {
-	bridges              map[string]*BridgeRuleSet
-	streamTracker        *StreamTracker
-	subscriptionChecker  PeerSubscriptionChecker
-	peerIDToSystemName   map[uint32]string // Maps peer IDs to system names
-	mu                   sync.RWMutex
+	bridges             map[string]*BridgeRuleSet
+	dynamicBridges      map[string]*DynamicBridge // key: "tgid:timeslot"
+	streamTracker       *StreamTracker
+	subscriptionChecker PeerSubscriptionChecker
+	peerIDToSystemName  map[uint32]string // Maps peer IDs to system names
+	mu                  sync.RWMutex
+}
+
+// DynamicBridge represents an automatically created bridge for a talkgroup
+type DynamicBridge struct {
+	TGID         uint32
+	Timeslot     int
+	CreatedAt    time.Time
+	LastActivity time.Time
+	Subscribers  map[uint32]bool // Peer IDs subscribed to this TG
+	mu           sync.RWMutex
 }
 
 // NewRouter creates a new router instance
 func NewRouter() *Router {
 	return &Router{
 		bridges:            make(map[string]*BridgeRuleSet),
+		dynamicBridges:     make(map[string]*DynamicBridge),
 		streamTracker:      NewStreamTracker(),
 		peerIDToSystemName: make(map[uint32]string),
 	}
@@ -186,4 +198,166 @@ func (r *Router) GetActiveBridges() []*BridgeRuleSet {
 // CleanupStreams removes old streams from the tracker
 func (r *Router) CleanupStreams(maxAge time.Duration) {
 	r.streamTracker.CleanupOldStreams(maxAge)
+}
+
+// GetOrCreateDynamicBridge gets or creates a dynamic bridge for a talkgroup
+func (r *Router) GetOrCreateDynamicBridge(tgid uint32, timeslot int) *DynamicBridge {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	key := dynamicBridgeKey(tgid, timeslot)
+	if bridge, exists := r.dynamicBridges[key]; exists {
+		return bridge
+	}
+
+	// Create new dynamic bridge
+	bridge := &DynamicBridge{
+		TGID:         tgid,
+		Timeslot:     timeslot,
+		CreatedAt:    time.Now(),
+		LastActivity: time.Now(),
+		Subscribers:  make(map[uint32]bool),
+	}
+	r.dynamicBridges[key] = bridge
+
+	return bridge
+}
+
+// AddSubscriberToDynamicBridge adds a peer to a dynamic bridge's subscriber list
+func (r *Router) AddSubscriberToDynamicBridge(tgid uint32, timeslot int, peerID uint32) {
+	bridge := r.GetOrCreateDynamicBridge(tgid, timeslot)
+
+	bridge.mu.Lock()
+	bridge.Subscribers[peerID] = true
+	bridge.LastActivity = time.Now()
+	bridge.mu.Unlock()
+}
+
+// RemoveSubscriberFromDynamicBridge removes a peer from a dynamic bridge
+func (r *Router) RemoveSubscriberFromDynamicBridge(tgid uint32, timeslot int, peerID uint32) {
+	r.mu.RLock()
+	key := dynamicBridgeKey(tgid, timeslot)
+	bridge, exists := r.dynamicBridges[key]
+	r.mu.RUnlock()
+
+	if !exists {
+		return
+	}
+
+	bridge.mu.Lock()
+	delete(bridge.Subscribers, peerID)
+	bridge.mu.Unlock()
+}
+
+// RemoveSubscriberFromAllDynamicBridges removes a peer from all dynamic bridges
+// Returns the count of bridges the peer was removed from
+func (r *Router) RemoveSubscriberFromAllDynamicBridges(peerID uint32) int {
+	r.mu.RLock()
+	bridges := make([]*DynamicBridge, 0, len(r.dynamicBridges))
+	for _, bridge := range r.dynamicBridges {
+		bridges = append(bridges, bridge)
+	}
+	r.mu.RUnlock()
+
+	count := 0
+	for _, bridge := range bridges {
+		bridge.mu.Lock()
+		if _, exists := bridge.Subscribers[peerID]; exists {
+			delete(bridge.Subscribers, peerID)
+			count++
+		}
+		bridge.mu.Unlock()
+	}
+
+	return count
+}
+
+// CleanupInactiveDynamicBridges removes dynamic bridges with no actual subscribers
+// It checks if any peers are subscribed to each talkgroup (not the bridge's cached subscriber list)
+// subscriberCountFunc should return the number of peers subscribed to the given talkgroup
+func (r *Router) CleanupInactiveDynamicBridges(maxInactive time.Duration, subscriberCountFunc func(tgid uint32) int) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+	removed := make([]string, 0)
+
+	for key, bridge := range r.dynamicBridges {
+		bridge.mu.RLock()
+		tgid := bridge.TGID
+		lastActivity := bridge.LastActivity
+		bridge.mu.RUnlock()
+
+		// Get actual subscriber count from peer manager
+		actualSubscriberCount := subscriberCountFunc(tgid)
+
+		// Remove if no actual subscribers and inactive for the duration
+		if actualSubscriberCount == 0 && now.Sub(lastActivity) > maxInactive {
+			delete(r.dynamicBridges, key)
+			removed = append(removed, key)
+		}
+	}
+
+	return removed
+}
+
+// GetDynamicBridgeSubscribers returns the peer IDs subscribed to a dynamic bridge
+func (r *Router) GetDynamicBridgeSubscribers(tgid uint32, timeslot int) []uint32 {
+	r.mu.RLock()
+	key := dynamicBridgeKey(tgid, timeslot)
+	bridge, exists := r.dynamicBridges[key]
+	r.mu.RUnlock()
+
+	if !exists {
+		return []uint32{}
+	}
+
+	bridge.mu.RLock()
+	defer bridge.mu.RUnlock()
+
+	result := make([]uint32, 0, len(bridge.Subscribers))
+	for peerID := range bridge.Subscribers {
+		result = append(result, peerID)
+	}
+
+	return result
+}
+
+// GetAllDynamicBridges returns a snapshot of all dynamic bridges
+func (r *Router) GetAllDynamicBridges() []*DynamicBridge {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]*DynamicBridge, 0, len(r.dynamicBridges))
+	for _, bridge := range r.dynamicBridges {
+		// Create a copy to avoid race conditions
+		bridge.mu.RLock()
+		bridgeCopy := &DynamicBridge{
+			TGID:         bridge.TGID,
+			Timeslot:     bridge.Timeslot,
+			CreatedAt:    bridge.CreatedAt,
+			LastActivity: bridge.LastActivity,
+			Subscribers:  make(map[uint32]bool, len(bridge.Subscribers)),
+		}
+		for peerID := range bridge.Subscribers {
+			bridgeCopy.Subscribers[peerID] = true
+		}
+		bridge.mu.RUnlock()
+
+		result = append(result, bridgeCopy)
+	}
+
+	return result
+}
+
+// dynamicBridgeKey creates a unique key for a dynamic bridge
+func dynamicBridgeKey(tgid uint32, timeslot int) string {
+	return string([]byte{
+		byte(tgid >> 24),
+		byte(tgid >> 16),
+		byte(tgid >> 8),
+		byte(tgid),
+		':',
+		byte(timeslot),
+	})
 }

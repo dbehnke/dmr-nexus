@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/dbehnke/dmr-nexus/pkg/bridge"
 	"github.com/dbehnke/dmr-nexus/pkg/config"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
+	"github.com/dbehnke/dmr-nexus/pkg/peer"
 )
 
 // Server represents the web dashboard HTTP server
@@ -22,6 +26,12 @@ type Server struct {
 	api    *API
 	addr   string
 	mu     sync.RWMutex
+
+	// Optional dependencies for API data exposure
+	peersProvider  interface{ GetAllPeers() []*peer.Peer }
+	routerProvider interface {
+		GetActiveBridges() []*bridge.BridgeRuleSet
+	}
 }
 
 // NewServer creates a new web server instance
@@ -34,9 +44,39 @@ func NewServer(cfg config.WebConfig, log *logger.Logger) *Server {
 	}
 }
 
+// WithPeerManager injects a PeerManager for API exposure
+func (s *Server) WithPeerManager(pm *peer.PeerManager) *Server {
+	s.peersProvider = pm
+	if s.api != nil {
+		s.api.SetDeps(pm, nil)
+	}
+	return s
+}
+
+// WithRouter injects a bridge Router for API exposure
+func (s *Server) WithRouter(r *bridge.Router) *Server {
+	s.routerProvider = r
+	if s.api != nil {
+		s.api.SetDeps(nil, r)
+	}
+	return s
+}
+
 // Start starts the web server
 func Start(ctx context.Context, cfg config.WebConfig, log *logger.Logger) error {
 	srv := NewServer(cfg, log)
+	return srv.Start(ctx)
+}
+
+// StartWithDeps starts the web server with optional dependencies for API exposure
+func StartWithDeps(ctx context.Context, cfg config.WebConfig, log *logger.Logger, pm *peer.PeerManager, r *bridge.Router) error {
+	srv := NewServer(cfg, log)
+	if pm != nil {
+		srv.WithPeerManager(pm)
+	}
+	if r != nil {
+		srv.WithRouter(r)
+	}
 	return srv.Start(ctx)
 }
 
@@ -49,6 +89,38 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start WebSocket hub
 	go s.hub.Run(ctx)
+	// Broadcast a lightweight heartbeat periodically so the UI can test realtime plumbing
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case t := <-ticker.C:
+				s.hub.Broadcast(Event{
+					Type:      "heartbeat",
+					Timestamp: t,
+					Data: map[string]interface{}{
+						"clients": s.hub.GetClientCount(),
+					},
+				})
+			}
+		}
+	}()
+
+	// Wire API deps if provided
+	if s.peersProvider != nil || s.routerProvider != nil {
+		var pm *peer.PeerManager
+		if p, ok := s.peersProvider.(*peer.PeerManager); ok {
+			pm = p
+		}
+		var rt *bridge.Router
+		if r, ok := s.routerProvider.(*bridge.Router); ok {
+			rt = r
+		}
+		s.api.SetDeps(pm, rt)
+	}
 
 	// Create HTTP router
 	mux := http.NewServeMux()
@@ -64,6 +136,35 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// WebSocket endpoint
 	mux.Handle("/ws", s.hub.Handler())
+
+	// Serve static frontend assets if present (frontend/dist)
+	staticDir := "frontend/dist"
+	// If the directory exists, mount a file handler with SPA fallback
+	if fi, err := os.Stat(staticDir); err == nil && fi.IsDir() {
+		s.logger.Info("Serving static frontend assets", logger.String("dir", staticDir))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// Clean the path and try to serve the requested file
+			reqPath := filepath.Clean(r.URL.Path)
+			// Disallow path traversal outside staticDir
+			if reqPath == "/" {
+				http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+				return
+			}
+			// Trim leading '/'
+			if len(reqPath) > 0 && reqPath[0] == '/' {
+				reqPath = reqPath[1:]
+			}
+			fullPath := filepath.Join(staticDir, reqPath)
+			if fi, err := os.Stat(fullPath); err == nil && !fi.IsDir() {
+				http.ServeFile(w, r, fullPath)
+				return
+			}
+			// Fallback to index.html for SPA routes
+			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+		})
+	} else {
+		s.logger.Info("No static frontend assets found; SPA not served", logger.String("dir", staticDir))
+	}
 
 	// Determine address
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
@@ -124,6 +225,20 @@ func (s *Server) GetAddr() string {
 // GetHub returns the WebSocket hub
 func (s *Server) GetHub() *WebSocketHub {
 	return s.hub
+}
+
+// PeerConnectedHandler returns a function suitable for network server hook
+func (s *Server) PeerConnectedHandler() func(id uint32, callsign string, addr string) {
+	return func(id uint32, callsign string, addr string) {
+		s.hub.BroadcastPeerConnected(id, callsign, addr)
+	}
+}
+
+// PeerDisconnectedHandler returns a function suitable for network server hook
+func (s *Server) PeerDisconnectedHandler() func(id uint32) {
+	return func(id uint32) {
+		s.hub.BroadcastPeerDisconnected(id)
+	}
 }
 
 // handleHealth handles the health check endpoint

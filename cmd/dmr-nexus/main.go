@@ -9,10 +9,13 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/dbehnke/dmr-nexus/pkg/bridge"
 	"github.com/dbehnke/dmr-nexus/pkg/config"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
 	"github.com/dbehnke/dmr-nexus/pkg/metrics"
 	"github.com/dbehnke/dmr-nexus/pkg/mqtt"
+	"github.com/dbehnke/dmr-nexus/pkg/network"
+	"github.com/dbehnke/dmr-nexus/pkg/peer"
 	"github.com/dbehnke/dmr-nexus/pkg/web"
 )
 
@@ -34,7 +37,7 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Initialize logger (basic console logger for now)
+	// Initialize logger (basic console logger for startup messages)
 	log := logger.New(logger.Config{
 		Level:  "info",
 		Format: "text",
@@ -59,6 +62,14 @@ func main() {
 
 	log.Info("Configuration loaded successfully",
 		logger.String("config_file", *configFile))
+
+	// Reinitialize logger with config from file
+	log = logger.New(logger.Config{
+		Level:  cfg.Logging.Level,
+		Format: cfg.Logging.Format,
+	})
+
+	log.Debug("Debug logging enabled")
 
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,12 +137,21 @@ func main() {
 			logger.String("topic_prefix", cfg.MQTT.TopicPrefix))
 	}
 
-	// Start web server if enabled
+	// Initialize DMR components
+	peerManager := peer.NewPeerManager()
+	router := bridge.NewRouter()
+
+	// Start web server if enabled (after creating peer manager and router)
+	var webServer *web.Server
 	if cfg.Web.Enabled {
+		webServer = web.NewServer(cfg.Web, log.WithComponent("web")).
+			WithPeerManager(peerManager).
+			WithRouter(router)
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if err := web.Start(ctx, cfg.Web, log.WithComponent("web")); err != nil && err != context.Canceled {
+			if err := webServer.Start(ctx); err != nil && err != context.Canceled {
 				log.Error("Web server error", logger.Error(err))
 			}
 		}()
@@ -140,7 +160,59 @@ func main() {
 			logger.Int("port", cfg.Web.Port))
 	}
 
-	// TODO: Initialize and start the DMR server components
+	// Start DMR network servers for each configured system
+	for name, system := range cfg.Systems {
+		if !system.Enabled {
+			log.Info("System disabled, skipping",
+				logger.String("system", name))
+			continue
+		}
+
+		switch system.Mode {
+		case "MASTER":
+			log.Info("Starting MASTER mode server",
+				logger.String("system", name),
+				logger.Int("port", system.Port))
+
+			server := network.NewServer(system, name, log.WithComponent("network."+name)).
+				WithPeerManager(peerManager).
+				WithRouter(router)
+
+			// Wire peer event handlers to WebSocket if web server is enabled
+			if webServer != nil {
+				server.SetPeerEventHandlers(
+					webServer.PeerConnectedHandler(),
+					webServer.PeerDisconnectedHandler(),
+				)
+			}
+
+			wg.Add(1)
+			go func(sysName string, srv *network.Server) {
+				defer wg.Done()
+				if err := srv.Start(ctx); err != nil && err != context.Canceled {
+					log.Error("DMR server error",
+						logger.String("system", sysName),
+						logger.Error(err))
+				}
+			}(name, server)
+
+		case "PEER":
+			log.Info("PEER mode not yet implemented",
+				logger.String("system", name))
+			// TODO: Implement PEER mode client
+
+		case "OPENBRIDGE":
+			log.Info("OPENBRIDGE mode not yet implemented",
+				logger.String("system", name))
+			// TODO: Implement OPENBRIDGE mode
+
+		default:
+			log.Warn("Unknown system mode",
+				logger.String("system", name),
+				logger.String("mode", system.Mode))
+		}
+	}
+
 	log.Info("DMR-Nexus initialized",
 		logger.String("server_name", cfg.Server.Name))
 

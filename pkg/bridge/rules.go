@@ -170,3 +170,36 @@ func (brs *BridgeRuleSet) ProcessDeactivation(tgid uint32) []*BridgeRule {
 
 	return deactivated
 }
+
+// BridgeRuleSnapshot is a read-only snapshot of a BridgeRule
+type BridgeRuleSnapshot struct {
+	System   string `json:"system"`
+	TGID     int    `json:"tgid"`
+	Timeslot int    `json:"timeslot"`
+	Active   bool   `json:"active"`
+}
+
+// BridgeRuleSetSnapshot is a read-only snapshot of a BridgeRuleSet
+type BridgeRuleSetSnapshot struct {
+	Name  string               `json:"name"`
+	Rules []BridgeRuleSnapshot `json:"rules"`
+}
+
+// Snapshot returns a snapshot of the rule set and all rules
+func (brs *BridgeRuleSet) Snapshot() BridgeRuleSetSnapshot {
+	brs.mu.RLock()
+	defer brs.mu.RUnlock()
+
+	out := BridgeRuleSetSnapshot{Name: brs.Name, Rules: make([]BridgeRuleSnapshot, 0, len(brs.Rules))}
+	for _, rule := range brs.Rules {
+		rule.mu.RLock()
+		out.Rules = append(out.Rules, BridgeRuleSnapshot{
+			System:   rule.System,
+			TGID:     rule.TGID,
+			Timeslot: rule.Timeslot,
+			Active:   rule.Active,
+		})
+		rule.mu.RUnlock()
+	}
+	return out
+}
