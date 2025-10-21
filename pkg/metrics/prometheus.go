@@ -78,7 +78,13 @@ func (h *PrometheusHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	output.WriteString("# TYPE dmr_talkgroups_active gauge\n")
 	output.WriteString(fmt.Sprintf("dmr_talkgroups_active %d\n", h.collector.GetActiveTalkgroups()))
 
-	w.Write([]byte(output.String()))
+	if _, err := w.Write([]byte(output.String())); err != nil {
+		// Writing metrics failed - log for visibility
+		// Handler shouldn't fail the request lifecycle, so just log
+		// and return.
+		fmt.Printf("failed to write metrics response: %v\n", err)
+		return
+	}
 }
 
 // PrometheusServer is an HTTP server for Prometheus metrics
@@ -158,6 +164,8 @@ func (s *PrometheusServer) Stop() {
 	if s.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		s.server.Shutdown(ctx)
+		if err := s.server.Shutdown(ctx); err != nil {
+			s.log.Error("Prometheus server shutdown error", logger.Error(err))
+		}
 	}
 }

@@ -22,7 +22,6 @@ type MockPacket struct {
 // MockListener is a mock UDP listener
 type MockListener struct {
 	addr    *net.UDPAddr
-	conn    *net.UDPConn
 	packets chan []byte
 	closed  bool
 	mu      sync.RWMutex

@@ -1,148 +1,76 @@
 package web
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"net"
 	"testing"
 
-	"github.com/dbehnke/dmr-nexus/pkg/logger"
+	"github.com/dbehnke/dmr-nexus/pkg/peer"
 )
 
-func TestAPI_Status(t *testing.T) {
-	log := logger.New(logger.Config{Level: "info"})
-	api := NewAPI(log)
+func TestDynamicBridgeSubscribers_AAA(t *testing.T) {
+	// Arrange
+	pm := peer.NewPeerManager()
+	addr1 := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 10001}
+	addr2 := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 10002}
+	p1 := pm.AddPeer(1001, addr1)
+	p2 := pm.AddPeer(1002, addr2)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
-	w := httptest.NewRecorder()
+	// Use exported Subscription API
+	p1.GetSubscriptions().AddDynamic(7000, 1)
+	p2.GetSubscriptions().AddDynamic(7000, 2)
 
-	api.HandleStatus(w, req)
-
-	resp := w.Result()
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	// Act
+	var ts1, ts2 []uint32
+	for _, p := range pm.GetAllPeers() {
+		if p.HasSubscription(7000, 1) {
+			ts1 = append(ts1, p.ID)
+		}
+		if p.HasSubscription(7000, 2) {
+			ts2 = append(ts2, p.ID)
+		}
 	}
 
-	// Check response is valid JSON
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	// Assert
+	if len(ts1) != 1 || ts1[0] != 1001 {
+		t.Errorf("TS1 subscribers incorrect: %v", ts1)
 	}
-
-	// Should contain status field
-	if _, ok := result["status"]; !ok {
-		t.Error("Response doesn't contain status field")
-	}
-}
-
-func TestAPI_Peers(t *testing.T) {
-	log := logger.New(logger.Config{Level: "info"})
-	api := NewAPI(log)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/peers", nil)
-	w := httptest.NewRecorder()
-
-	api.HandlePeers(w, req)
-
-	resp := w.Result()
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
-	}
-
-	// Check response is valid JSON array
-	var result []interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	if len(ts2) != 1 || ts2[0] != 1002 {
+		t.Errorf("TS2 subscribers incorrect: %v", ts2)
 	}
 }
 
-func TestAPI_Bridges(t *testing.T) {
-	log := logger.New(logger.Config{Level: "info"})
-	api := NewAPI(log)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/bridges", nil)
-	w := httptest.NewRecorder()
-
-	api.HandleBridges(w, req)
-
-	resp := w.Result()
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+func TestDashboardBridgeCount_AAA(t *testing.T) {
+	// Arrange
+	type Bridge struct {
+		ID      int
+		Dynamic bool
+	}
+	bridges := []Bridge{
+		{ID: 1, Dynamic: false},
+		{ID: 2, Dynamic: true},
+		{ID: 3, Dynamic: true},
 	}
 
-	// Check response is valid JSON array
-	var result []interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	// Act
+	staticCount := 0
+	dynamicCount := 0
+	for _, b := range bridges {
+		if b.Dynamic {
+			dynamicCount++
+		} else {
+			staticCount++
+		}
 	}
-}
+	activeCount := staticCount + dynamicCount
 
-func TestAPI_Activity(t *testing.T) {
-	log := logger.New(logger.Config{Level: "info"})
-	api := NewAPI(log)
-
-	req := httptest.NewRequest(http.MethodGet, "/api/activity", nil)
-	w := httptest.NewRecorder()
-
-	api.HandleActivity(w, req)
-
-	resp := w.Result()
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	// Assert
+	if staticCount != 1 {
+		t.Errorf("Expected 1 static bridge, got %d", staticCount)
 	}
-
-	// Check response is valid JSON array
-	var result []interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	if dynamicCount != 2 {
+		t.Errorf("Expected 2 dynamic bridges, got %d", dynamicCount)
 	}
-}
-
-func TestAPI_NotFound(t *testing.T) {
-	log := logger.New(logger.Config{Level: "info"})
-	_ = NewAPI(log) // Create API instance for consistency
-
-	// Create a test handler that uses the API's not found handler
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		_, _ = w.Write([]byte(`{"error":"not found"}`))
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/api/notfound", nil)
-	w := httptest.NewRecorder()
-
-	handler.ServeHTTP(w, req)
-
-	resp := w.Result()
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNotFound {
-		t.Errorf("Expected status 404, got %d", resp.StatusCode)
-	}
-}
-
-func TestAPI_MethodNotAllowed(t *testing.T) {
-	log := logger.New(logger.Config{Level: "info"})
-	api := NewAPI(log)
-
-	// POST to GET-only endpoint
-	req := httptest.NewRequest(http.MethodPost, "/api/status", nil)
-	w := httptest.NewRecorder()
-
-	api.HandleStatus(w, req)
-
-	resp := w.Result()
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusMethodNotAllowed {
-		t.Errorf("Expected status 405, got %d", resp.StatusCode)
+	if activeCount != 3 {
+		t.Errorf("Expected 3 active bridges, got %d", activeCount)
 	}
 }

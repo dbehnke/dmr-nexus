@@ -596,3 +596,25 @@ func TestValidateOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestSentinelUnlimitedDynamic_AAA(t *testing.T) {
+	// Arrange
+	s := NewSubscriptionState()
+	tgid := uint32(9999)
+	timeslot := uint8(1)
+	// Add dynamic with unlimited (AutoTTL=0)
+	s.AutoTTL = 0
+	s.AddDynamic(tgid, timeslot)
+
+	// Act
+	active := s.HasTalkgroup(tgid, timeslot)
+	groups := s.GetTalkgroups(timeslot)
+
+	// Assert
+	if !active {
+		t.Errorf("Sentinel dynamic should be active")
+	}
+	if len(groups) != 1 || groups[0] != tgid {
+		t.Errorf("GetTalkgroups should return the sentinel dynamic TG: %v", groups)
+	}
+}

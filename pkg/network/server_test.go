@@ -20,7 +20,7 @@ func TestServer_New(t *testing.T) {
 	}
 
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	if srv == nil {
 		t.Fatal("NewServer returned nil")
@@ -39,7 +39,7 @@ func TestServer_StartStop(t *testing.T) {
 	}
 
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -74,7 +74,7 @@ func TestServer_HandleRPTL(t *testing.T) {
 	}
 
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -162,7 +162,7 @@ func TestServer_HandleRPTK(t *testing.T) {
 	}
 
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -247,7 +247,7 @@ func TestServer_HandleRPTC(t *testing.T) {
 	}
 
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -355,7 +355,7 @@ func TestServer_ACLDeny(t *testing.T) {
 	}
 
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -428,7 +428,7 @@ func TestServer_PeerTimeout(t *testing.T) {
 	}
 
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 	srv.pingTimeout = 200 * time.Millisecond     // Short timeout for testing
 	srv.cleanupInterval = 100 * time.Millisecond // Frequent cleanup for testing
 
@@ -488,7 +488,7 @@ func TestServer_ForwardDMRD_RepeatEnabled(t *testing.T) {
 		Repeat: true,
 	}
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	// Bind a UDP socket for the server without starting background loops
 	srvAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
@@ -550,7 +550,7 @@ func TestServer_ForwardDMRD_RepeatEnabled(t *testing.T) {
 func TestServer_HandleRPTPING_SendsMSTPONG(t *testing.T) {
 	cfg := config.SystemConfig{Mode: "MASTER"}
 	log := logger.New(logger.Config{Level: "info"})
-	srv := NewServer(cfg, log)
+	srv := NewServer(cfg, "test-system", log)
 
 	// Bind server UDP socket
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
@@ -598,5 +598,38 @@ func TestServer_HandleRPTPING_SendsMSTPONG(t *testing.T) {
 	gotID := binary.BigEndian.Uint32(buf[7:11])
 	if gotID != peerID {
 		t.Fatalf("MSTPONG peer id mismatch: got %d want %d", gotID, peerID)
+	}
+}
+
+func TestStreamMuteFirstTransmission_AAA(t *testing.T) {
+	// Arrange
+	cfg := config.SystemConfig{
+		Mode:       "MASTER",
+		Port:       0,
+		Passphrase: "test",
+	}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+	streamID := uint32(12345)
+	// Simulate AddDynamic returning true (first key-up)
+	srv.mutedStreams[streamID] = time.Now().Add(2 * time.Second)
+
+	// Act
+	muted, exists := srv.mutedStreams[streamID]
+
+	// Assert
+	if !exists {
+		t.Errorf("Stream should be muted on first transmission")
+	}
+	if time.Until(muted) < time.Second {
+		t.Errorf("Mute expiry should be at least 2s from now")
+	}
+
+	// Simulate cleanup after 2s
+	time.Sleep(2100 * time.Millisecond)
+	srv.CleanupMutedStreamsOnce(time.Now())
+	_, stillMuted := srv.mutedStreams[streamID]
+	if stillMuted {
+		t.Errorf("Stream mute should be cleaned up after idle timeout")
 	}
 }

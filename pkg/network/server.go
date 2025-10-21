@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/dbehnke/dmr-nexus/pkg/bridge"
@@ -36,7 +37,19 @@ type Server struct {
 	onPeerDisconnected func(id uint32)
 
 	// Mute map: streamID -> expiry of mute (2s idle or until terminator)
-	mutedStreams map[uint32]time.Time
+	mutedStreams   map[uint32]time.Time
+	mutedStreamsMu sync.Mutex
+}
+
+// CleanupMutedStreamsOnce runs a single cleanup pass for mutedStreams (for testing)
+func (s *Server) CleanupMutedStreamsOnce(now time.Time) {
+	s.mutedStreamsMu.Lock()
+	defer s.mutedStreamsMu.Unlock()
+	for streamID, expiry := range s.mutedStreams {
+		if now.After(expiry) {
+			delete(s.mutedStreams, streamID)
+		}
+	}
 }
 
 // NewServer creates a new UDP server for MASTER mode
@@ -789,6 +802,8 @@ func (s *Server) sendMSTPONG(peerID uint32, addr *net.UDPAddr) {
 }
 
 // sendMSTNAK sends a negative acknowledgement to an unknown peer
+//
+//nolint:unused
 func (s *Server) sendMSTNAK(peerID uint32, addr *net.UDPAddr) {
 	nak := make([]byte, protocol.MSTNAKPacketSize)
 	copy(nak[0:6], protocol.PacketTypeMSTNAK)

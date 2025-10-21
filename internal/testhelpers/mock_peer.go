@@ -117,7 +117,9 @@ func (m *MockPeer) ReceivePacket(timeout time.Duration) ([]byte, error) {
 		return nil, nil
 	}
 
-	conn.SetReadDeadline(time.Now().Add(timeout))
+	if err := conn.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return nil, err
+	}
 	buf := make([]byte, 1500)
 	n, err := conn.Read(buf)
 	if err != nil {
