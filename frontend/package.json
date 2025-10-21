@@ -1,0 +1,16 @@
+{
+  "name": "dmr-nexus-frontend",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "vite preview --port 5173"
+  },
+  "dependencies": {
+    "vue": "^3.3.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
