@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -64,6 +66,35 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// WebSocket endpoint
 	mux.Handle("/ws", s.hub.Handler())
+
+	// Serve static frontend assets if present (frontend/dist)
+	staticDir := "frontend/dist"
+	// If the directory exists, mount a file handler with SPA fallback
+	if fi, err := os.Stat(staticDir); err == nil && fi.IsDir() {
+		s.logger.Info("Serving static frontend assets", logger.String("dir", staticDir))
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			// Clean the path and try to serve the requested file
+			reqPath := filepath.Clean(r.URL.Path)
+			// Disallow path traversal outside staticDir
+			if reqPath == "/" {
+				http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+				return
+			}
+			// Trim leading '/'
+			if len(reqPath) > 0 && reqPath[0] == '/' {
+				reqPath = reqPath[1:]
+			}
+			fullPath := filepath.Join(staticDir, reqPath)
+			if fi, err := os.Stat(fullPath); err == nil && !fi.IsDir() {
+				http.ServeFile(w, r, fullPath)
+				return
+			}
+			// Fallback to index.html for SPA routes
+			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+		})
+	} else {
+		s.logger.Info("No static frontend assets found; SPA not served", logger.String("dir", staticDir))
+	}
 
 	// Determine address
 	addr := fmt.Sprintf("%s:%d", s.config.Host, s.config.Port)
