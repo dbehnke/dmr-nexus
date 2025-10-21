@@ -228,6 +228,11 @@ func (s *Server) GetHub() *WebSocketHub {
 	return s.hub
 }
 
+// GetAPI returns the API instance
+func (s *Server) GetAPI() *API {
+	return s.api
+}
+
 // PeerConnectedHandler returns a function suitable for network server hook
 func (s *Server) PeerConnectedHandler() func(id uint32, callsign string, addr string) {
 	return func(id uint32, callsign string, addr string) {

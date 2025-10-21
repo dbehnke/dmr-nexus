@@ -15,6 +15,7 @@ type Router struct {
 	bridges             map[string]*BridgeRuleSet
 	dynamicBridges      map[string]*DynamicBridge // key: "tgid:timeslot"
 	streamTracker       *StreamTracker
+	txLogger            *TransmissionLogger
 	subscriptionChecker PeerSubscriptionChecker
 	peerIDToSystemName  map[uint32]string // Maps peer IDs to system names
 	mu                  sync.RWMutex
@@ -45,6 +46,13 @@ func (r *Router) SetSubscriptionChecker(checker PeerSubscriptionChecker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.subscriptionChecker = checker
+}
+
+// SetTransmissionLogger sets the transmission logger for the router
+func (r *Router) SetTransmissionLogger(logger *TransmissionLogger) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.txLogger = logger
 }
 
 // RegisterPeer registers a peer ID to system name mapping
@@ -78,6 +86,19 @@ func (r *Router) GetBridge(name string) *BridgeRuleSet {
 // RoutePacket routes a DMR packet based on bridge rules and peer subscriptions
 // Returns a list of target systems to forward the packet to
 func (r *Router) RoutePacket(packet *protocol.DMRDPacket, sourceSystem string) []string {
+	// Log the transmission if logger is configured
+	if r.txLogger != nil {
+		isTerminator := packet.FrameType == protocol.FrameTypeVoiceTerminator
+		r.txLogger.LogPacket(
+			packet.StreamID,
+			packet.SourceID,
+			packet.DestinationID,
+			packet.RepeaterID,
+			packet.Timeslot,
+			isTerminator,
+		)
+	}
+
 	// Check if this is a terminator frame - end the stream after processing
 	isTerminator := packet.FrameType == protocol.FrameTypeVoiceTerminator
 	defer func() {

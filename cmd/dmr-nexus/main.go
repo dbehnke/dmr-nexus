@@ -8,9 +8,11 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/dbehnke/dmr-nexus/pkg/bridge"
 	"github.com/dbehnke/dmr-nexus/pkg/config"
+	"github.com/dbehnke/dmr-nexus/pkg/database"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
 	"github.com/dbehnke/dmr-nexus/pkg/metrics"
 	"github.com/dbehnke/dmr-nexus/pkg/mqtt"
@@ -85,6 +87,19 @@ func main() {
 	// Initialize metrics collector
 	metricsCollector := metrics.NewCollector()
 
+	// Initialize database
+	db, err := database.NewDB(database.Config{
+		Path: "data/dmr-nexus.db",
+	}, log.WithComponent("database"))
+	if err != nil {
+		log.Error("Failed to initialize database", logger.Error(err))
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	txRepo := database.NewTransmissionRepository(db.GetDB())
+	log.Info("Database initialized")
+
 	// Start Prometheus metrics server if enabled
 	if cfg.Metrics.Enabled && cfg.Metrics.Prometheus.Enabled {
 		wg.Add(1)
@@ -141,12 +156,35 @@ func main() {
 	peerManager := peer.NewPeerManager()
 	router := bridge.NewRouter()
 
+	// Set up transmission logger for router
+	txLogger := bridge.NewTransmissionLogger(txRepo, log.WithComponent("txlog"))
+	router.SetTransmissionLogger(txLogger)
+
+	// Start cleanup routine for stale streams
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				txLogger.CleanupStaleStreams(60 * time.Second)
+			}
+		}
+	}()
+
 	// Start web server if enabled (after creating peer manager and router)
 	var webServer *web.Server
 	if cfg.Web.Enabled {
 		webServer = web.NewServer(cfg.Web, log.WithComponent("web")).
 			WithPeerManager(peerManager).
 			WithRouter(router)
+
+		// Set transmission repository for API
+		webServer.GetAPI().SetTransmissionRepo(txRepo)
 
 		wg.Add(1)
 		go func() {
