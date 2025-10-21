@@ -82,7 +82,11 @@ dev:
 ## frontend: Build frontend assets
 frontend:
 	@echo "$(BLUE)Building frontend...$(NC)"
-	@cd $(FRONTEND_DIR) && npm install && npm run build
+	@if [ ! -f $(FRONTEND_DIR)/package.json ]; then \
+		echo "No frontend/package.json found. If you have a frontend, add package.json in $(FRONTEND_DIR) or run 'make frontend' from the frontend repo."; \
+		exit 1; \
+	fi
+	@cd $(FRONTEND_DIR) && npm ci && npm run build
 
 ## docker: Build Docker image
 docker:
