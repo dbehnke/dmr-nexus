@@ -126,7 +126,7 @@ func (h *WebSocketHub) Handler() http.Handler {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
-		CheckOrigin: func(r *http.Request) bool { return true },
+		CheckOrigin:     func(r *http.Request) bool { return true },
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
@@ -165,4 +165,27 @@ func (h *WebSocketHub) GetClientCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.clients)
+}
+
+// Helper broadcasters for common event types
+func (h *WebSocketHub) BroadcastPeerConnected(id uint32, callsign string, addr string) {
+	h.Broadcast(Event{
+		Type:      "peer_connected",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"id":       id,
+			"callsign": callsign,
+			"addr":     addr,
+		},
+	})
+}
+
+func (h *WebSocketHub) BroadcastPeerDisconnected(id uint32) {
+	h.Broadcast(Event{
+		Type:      "peer_disconnected",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"id": id,
+		},
+	})
 }

@@ -7,7 +7,10 @@ A modern, high-performance DMR (Digital Mobile Radio) repeater networking system
 - **Full HomeBrew Protocol Support**: PEER, MASTER, and OPENBRIDGE modes
 - **High Performance**: Handle 200+ simultaneous peer connections using Go's goroutines
 - **Web Dashboard**: Real-time monitoring with Vue3, WebSocket updates, and TailwindCSS
+- **Dynamic Talkgroup Subscriptions**: Automatic on-demand subscriptions with configurable TTL
+- **Timeslot-Agnostic Bridges**: TG bridging works across TS1 and TS2 automatically
 - **Conference Bridge**: Talkgroup-based routing between multiple systems
+- **Special Talkgroups**: TG 777 (monitor all), TG 4000 (disconnect all dynamic)
 - **Single Binary**: All features packaged in one executable with embedded frontend
 - **Docker Ready**: Easy deployment with containerization support
 - **MQTT Integration**: Real-time events for connect/disconnect/talk actions
@@ -152,6 +155,133 @@ bridges:
       off: [3101]     # Deactivate on TG 3101
       timeout: 15     # Auto-disable after 15 minutes
 ```
+
+## Special Talkgroups
+
+DMR-Nexus includes special administrative talkgroups for managing dynamic subscriptions:
+
+### TG 777 - Monitor All Mode
+
+**TG 777** enables "parrot mode" or "monitor all" functionality.
+
+- **Purpose**: Receive ALL traffic from all talkgroups regardless of subscriptions
+- **Usage**: Key up on TG 777 (any timeslot) to enable
+- **Effect**: 
+  - Peer enters "repeat mode"
+  - Receives all DMRD packets from all talkgroups
+  - Bypasses normal subscription filtering
+  - Remains active until disabled with TG 4000
+- **Use Case**: Network monitoring, troubleshooting, dispatch operations
+
+**Example:**
+1. Peer keys up on TG 777
+2. Peer now receives traffic from TG 7000, 8000, 9000, etc. simultaneously
+3. Peer keys up on TG 4000 to disable and return to normal operation
+
+### TG 4000 - Disconnect All Dynamic
+
+**TG 4000** is a special administrative talkgroup that resets dynamic subscriptions.
+
+- **Purpose**: Immediately unsubscribe from all dynamic talkgroups and disable repeat mode
+- **Usage**: Key up on TG 4000 (any timeslot)
+- **Effect**: 
+  - Removes peer from all dynamic bridges
+  - Clears all dynamic subscriptions (TTL-based subscriptions)
+  - Disables TG 777 repeat mode if enabled
+  - Preserves static subscriptions configured in peer OPTIONS
+- **Use Case**: Clean slate without waiting for TTL expiration
+
+**Example:**
+1. Peer transmits on TG 7000, 8000, 9000 (creates dynamic subscriptions)
+2. Peer enables TG 777 monitor mode
+3. Peer keys up TG 4000
+4. Peer is now only subscribed to static talkgroups from their configuration
+5. TG 777 repeat mode is disabled
+
+See [docs/TALKGROUP_4000.md](docs/TALKGROUP_4000.md) for detailed information.
+
+## Dynamic Talkgroup Subscriptions
+
+DMR-Nexus features an intelligent dynamic subscription system that automatically manages talkgroup access based on transmission activity.
+
+### How It Works
+
+**First Key-Up = Subscription Activation**
+- When a peer transmits on a talkgroup for the first time, it subscribes to that talkgroup
+- The first transmission does NOT forward audio (subscription key-up only)
+- Subsequent transmissions forward normally
+
+**One Talkgroup Per Timeslot**
+- Each timeslot (TS1/TS2) can only have one active dynamic subscription at a time
+- Transmitting on a new talkgroup automatically unsubscribes from the previous talkgroup in that timeslot
+- TS1 and TS2 subscriptions are independent
+
+**Timeslot-Agnostic Bridges**
+- Dynamic bridges work across timeslots automatically
+- Example: Client 1 on TG 7000 TS1 can talk to Client 2 on TG 7000 TS2
+- The server bridges traffic between different timeslot configurations
+
+**Subscription TTL (Time-To-Live)**
+- Subscription lifetime is controlled by the peer's `AUTO` setting in OPTIONS
+- Example: `OPTIONS=AUTO=600` sets a 10-minute TTL
+- If no `AUTO` is specified, subscriptions are unlimited until switching talkgroups
+- TTL is refreshed on each transmission
+
+**Bridge Cleanup**
+- Dynamic bridges are automatically removed after 5 minutes of having zero subscribers
+- Based on actual peer subscriptions, not cached lists
+- Cleanup runs every 10 seconds
+
+### Configuration Examples
+
+**DroidStar Client Configuration:**
+```
+OPTIONS=AUTO=600  # 10-minute subscription TTL
+```
+
+**Server Configuration:**
+```yaml
+systems:
+  MASTER-1:
+    mode: MASTER
+    enabled: true
+    port: 62031
+    passphrase: "changeme"
+    repeat: false  # Use dynamic bridges instead of repeating to all peers
+    max_peers: 50
+```
+
+### Usage Example
+
+**Scenario: Two clients switching between talkgroups**
+
+1. **Client 1 keys up on TG 7000 TS2:**
+   - First transmission: Subscribes to TG 7000 TS2, no audio forwarded
+   - Bridge "7000" created (timeslot-agnostic)
+   
+2. **Client 2 keys up on TG 7000 TS1:**
+   - First transmission: Subscribes to TG 7000 TS1, no audio forwarded
+   - Now subscribed to same TG but different timeslot
+   
+3. **Client 1 transmits again on TG 7000:**
+   - Audio forwarded to Client 2 (bridge works across TS1 and TS2)
+   
+4. **Client 1 keys up on TG 8000 TS2:**
+   - Automatically unsubscribed from TG 7000 TS2
+   - Subscribed to TG 8000 TS2 (first key-up, no audio)
+   - Client 2 still on TG 7000
+   
+5. **After 5 minutes of no subscribers on TG 8000:**
+   - Bridge "8000" automatically cleaned up
+   
+6. **Client 1 keys up on TG 777:**
+   - Enters monitor-all mode
+   - Receives traffic from all talkgroups
+   
+7. **Client 1 keys up on TG 4000:**
+   - All dynamic subscriptions cleared
+   - Monitor-all mode disabled
+   - Returns to clean state
 
 ## MQTT Integration
 

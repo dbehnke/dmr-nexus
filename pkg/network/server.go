@@ -7,6 +7,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/dbehnke/dmr-nexus/pkg/bridge"
 	"github.com/dbehnke/dmr-nexus/pkg/config"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
 	"github.com/dbehnke/dmr-nexus/pkg/peer"
@@ -16,9 +17,11 @@ import (
 // Server represents a UDP server for MASTER mode
 type Server struct {
 	config          config.SystemConfig
+	systemName      string // Name of this system (from config key)
 	log             *logger.Logger
 	conn            *net.UDPConn
 	peerManager     *peer.PeerManager
+	router          *bridge.Router
 	pingTimeout     time.Duration
 	cleanupInterval time.Duration
 	regACL          *peer.ACL
@@ -27,18 +30,45 @@ type Server struct {
 	tg2ACL          *peer.ACL
 	// started is closed once the UDP listener is bound and ready
 	started chan struct{}
+
+	// Optional hooks for events
+	onPeerConnected    func(id uint32, callsign string, addr string)
+	onPeerDisconnected func(id uint32)
+
+	// Mute map: streamID -> expiry of mute (2s idle or until terminator)
+	mutedStreams map[uint32]time.Time
 }
 
 // NewServer creates a new UDP server for MASTER mode
-func NewServer(cfg config.SystemConfig, log *logger.Logger) *Server {
+func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *Server {
 	return &Server{
 		config:          cfg,
+		systemName:      systemName,
 		log:             log.WithComponent("network.server"),
 		peerManager:     peer.NewPeerManager(),
 		pingTimeout:     30 * time.Second, // Default timeout
 		cleanupInterval: 10 * time.Second, // Default cleanup interval
 		started:         make(chan struct{}),
+		mutedStreams:    make(map[uint32]time.Time),
 	}
+}
+
+// WithPeerManager injects a shared peer manager (instead of using the internal one)
+func (s *Server) WithPeerManager(pm *peer.PeerManager) *Server {
+	s.peerManager = pm
+	return s
+}
+
+// WithRouter injects a bridge router for routing packets between systems
+func (s *Server) WithRouter(r *bridge.Router) *Server {
+	s.router = r
+	return s
+}
+
+// SetPeerEventHandlers sets optional callbacks for peer events
+func (s *Server) SetPeerEventHandlers(onConnect func(id uint32, callsign string, addr string), onDisconnect func(id uint32)) {
+	s.onPeerConnected = onConnect
+	s.onPeerDisconnected = onDisconnect
 }
 
 // Start starts the server and begins accepting connections
@@ -179,13 +209,52 @@ func (s *Server) receiveLoop(ctx context.Context) error {
 
 // handlePacket processes a received packet
 func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
+	if len(data) == 0 {
+		// Empty UDP packets can happen (spurious wake-ups, etc.) - ignore silently
+		return
+	}
 	if len(data) < 4 {
 		s.log.Debug("Packet too small", logger.Int("size", len(data)))
 		return
 	}
 
-	// Get packet type
-	packetType := string(data[0:4])
+	// Get packet type - HomeBrew protocol has variable length packet type identifiers
+	// Try to match from longest to shortest: 7 chars, 6 chars, 5 chars, 4 chars
+	var packetType string
+	if len(data) >= 7 {
+		check7 := string(data[0:7])
+		if check7 == protocol.PacketTypeRPTPING || check7 == protocol.PacketTypeMSTPONG {
+			packetType = check7
+		}
+	}
+	if packetType == "" && len(data) >= 6 {
+		check6 := string(data[0:6])
+		if check6 == protocol.PacketTypeRPTACK {
+			packetType = check6
+		}
+	}
+	if packetType == "" && len(data) >= 5 {
+		check5 := string(data[0:5])
+		if check5 == protocol.PacketTypeMSTCL || check5 == protocol.PacketTypeRPTCL {
+			packetType = check5
+		}
+	}
+	if packetType == "" {
+		// Default to 4-char packet types (DMRD, RPTL, RPTK, RPTC)
+		packetType = string(data[0:4])
+	}
+
+	// For debugging, get raw header
+	headerLen := 7
+	if len(data) < 7 {
+		headerLen = len(data)
+	}
+
+	s.log.Debug("Received packet",
+		logger.String("type", packetType),
+		logger.String("addr", addr.String()),
+		logger.Int("size", len(data)),
+		logger.String("raw_header", string(data[0:headerLen])))
 
 	switch packetType {
 	case protocol.PacketTypeDMRD:
@@ -196,6 +265,8 @@ func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
 		s.handleRPTK(data, addr)
 	case protocol.PacketTypeRPTC:
 		s.handleRPTC(data, addr)
+	case protocol.PacketTypeRPTCL:
+		s.handleRPTCL(data, addr)
 	case protocol.PacketTypeRPTPING:
 		s.handleRPTPING(data, addr)
 	case protocol.PacketTypeMSTCL:
@@ -295,7 +366,13 @@ func (s *Server) handleRPTC(data []byte, addr *net.UDPAddr) {
 		logger.Int("peer_id", int(rptc.RepeaterID)),
 		logger.String("callsign", rptc.Callsign))
 
+	// Hook: peer connected
+	if s.onPeerConnected != nil {
+		s.onPeerConnected(rptc.RepeaterID, rptc.Callsign, addr.String())
+	}
+
 	// Send RPTACK
+	// The client enters DMR_CONF state and expects RPTACK to trigger setup_connection()
 	s.sendRPTACK(rptc.RepeaterID, addr)
 }
 
@@ -311,14 +388,46 @@ func (s *Server) handleRPTPING(data []byte, addr *net.UDPAddr) {
 	// Get peer
 	p := s.peerManager.GetPeer(peerID)
 	if p == nil {
+		// Unknown peer - send MSTCL to force disconnect
+		// This can happen if server restarts or client crashes
+		s.log.Debug("Received RPTPING from unknown peer, sending MSTCL",
+			logger.Uint64("peer_id", uint64(peerID)),
+			logger.String("addr", addr.String()))
+		s.sendMSTCL(peerID, addr)
 		return
 	}
+
+	s.log.Debug("Received RPTPING",
+		logger.Uint64("peer_id", uint64(peerID)),
+		logger.String("addr", addr.String()))
 
 	// Update last heard
 	p.UpdateLastHeard()
 
 	// Send MSTPONG response
 	s.sendMSTPONG(peerID, addr)
+}
+
+// handleRPTCL handles disconnect requests from peers (peer-initiated)
+func (s *Server) handleRPTCL(data []byte, addr *net.UDPAddr) {
+	if len(data) < protocol.RPTCLPacketSize {
+		return
+	}
+
+	// Extract repeater ID (bytes 5-9 after "RPTCL")
+	peerID := binary.BigEndian.Uint32(data[5:9])
+
+	s.log.Info("Peer disconnect (RPTCL)",
+		logger.Uint64("peer_id", uint64(peerID)),
+		logger.String("addr", addr.String()))
+
+	// Remove peer
+	s.peerManager.RemovePeer(peerID)
+
+	// Hook: peer disconnected
+	if s.onPeerDisconnected != nil {
+		s.onPeerDisconnected(peerID)
+	}
 }
 
 // handleMSTCL handles disconnect requests from peers
@@ -336,6 +445,11 @@ func (s *Server) handleMSTCL(data []byte, addr *net.UDPAddr) {
 
 	// Remove peer
 	s.peerManager.RemovePeer(peerID)
+
+	// Hook: peer disconnected
+	if s.onPeerDisconnected != nil {
+		s.onPeerDisconnected(peerID)
+	}
 }
 
 // handleDMRD handles DMR data packets
@@ -385,9 +499,234 @@ func (s *Server) handleDMRD(data []byte, addr *net.UDPAddr) {
 		}
 	}
 
+	// Process bridge activation/deactivation if router is configured
+	if s.router != nil {
+		// Special handling for TG 777 - enable "repeat everything" mode
+		if dmrd.DestinationID == 777 {
+			p.SetRepeatMode(true)
+
+			s.log.Info("Peer enabled repeat-all mode",
+				logger.Int("peer_id", int(p.ID)),
+				logger.String("callsign", p.Callsign))
+
+			// Don't process this as a normal talkgroup
+			return
+		}
+
+		// Special handling for TG 4000 - disconnect from all dynamic subscriptions AND disable repeat mode
+		if dmrd.DestinationID == 4000 {
+			// Disable repeat mode
+			p.SetRepeatMode(false)
+
+			// Remove from all dynamic bridges
+			bridgeCount := s.router.RemoveSubscriberFromAllDynamicBridges(p.ID)
+
+			// Clear all dynamic subscriptions from peer
+			var subCount int
+			if p.Subscriptions != nil {
+				subCount = p.Subscriptions.ClearAllDynamic()
+			}
+
+			s.log.Info("Peer disconnected from all dynamic talkgroups and disabled repeat mode",
+				logger.Int("peer_id", int(p.ID)),
+				logger.String("callsign", p.Callsign),
+				logger.Int("dynamic_bridges", bridgeCount),
+				logger.Int("dynamic_subscriptions", subCount))
+
+			// Don't process this as a normal talkgroup
+			return
+		}
+
+		// Touch the transmitting peer's subscription to this talkgroup
+		// AddDynamic returns true if this is a NEW subscription (first key-up)
+		// First key-up subscribes but doesn't forward audio (subscription activation)
+		// Uses the peer's AutoTTL from OPTIONS, or unlimited if not set
+		isNewSubscription := false
+		if p.Subscriptions != nil {
+			isNewSubscription = p.Subscriptions.AddDynamic(dmrd.DestinationID, uint8(dmrd.Timeslot))
+		}
+
+		// Create/update dynamic bridge for dashboard visibility
+		// This doesn't affect forwarding logic - it's just for tracking/display
+		s.router.GetOrCreateDynamicBridge(dmrd.DestinationID, dmrd.Timeslot)
+
+		// If this is the first key-up (new subscription), mark this stream muted
+		if isNewSubscription {
+			// Mute for the duration of this transmission: until voice terminator or 2s idle
+			s.mutedStreams[dmrd.StreamID] = time.Now().Add(2 * time.Second)
+			s.log.Info("Peer subscribed to talkgroup (first key-up muted for this transmission)",
+				logger.Int("peer_id", int(p.ID)),
+				logger.String("callsign", p.Callsign),
+				logger.Int("tg", int(dmrd.DestinationID)),
+				logger.Int("ts", dmrd.Timeslot),
+				logger.Uint64("stream", uint64(dmrd.StreamID)))
+			// Do not forward this frame
+			return
+		}
+
+		s.log.Debug("Dynamic bridge activity",
+			logger.Int("peer_id", int(p.ID)),
+			logger.Int("tg", int(dmrd.DestinationID)),
+			logger.Int("ts", dmrd.Timeslot),
+			logger.Int("src", int(dmrd.SourceID)))
+
+		// Check if this TGID should activate any static bridge rules
+		activated := s.router.ProcessActivation(dmrd.DestinationID)
+		if len(activated) > 0 {
+			for bridgeName, rules := range activated {
+				for _, rule := range rules {
+					s.log.Info("Bridge rule activated",
+						logger.String("bridge", bridgeName),
+						logger.String("system", rule.System),
+						logger.Int("tg", rule.TGID),
+						logger.Int("ts", rule.Timeslot))
+				}
+			}
+		}
+
+		// Check if this TGID should deactivate any static bridge rules
+		deactivated := s.router.ProcessDeactivation(dmrd.DestinationID)
+		if len(deactivated) > 0 {
+			for bridgeName, rules := range deactivated {
+				for _, rule := range rules {
+					s.log.Info("Bridge rule deactivated",
+						logger.String("bridge", bridgeName),
+						logger.String("system", rule.System),
+						logger.Int("tg", rule.TGID),
+						logger.Int("ts", rule.Timeslot))
+				}
+			}
+		}
+
+		// Update or clear stream mute based on frames
+		if _, muted := s.mutedStreams[dmrd.StreamID]; muted {
+			// Extend mute window with activity
+			s.mutedStreams[dmrd.StreamID] = time.Now().Add(2 * time.Second)
+			// If this is a terminator frame, unmute by deleting
+			if dmrd.FrameType == protocol.FrameTypeVoiceTerminator {
+				delete(s.mutedStreams, dmrd.StreamID)
+			}
+			// Suppress forwarding while muted
+			return
+		}
+
+		// Route packet using bridge rules and dynamic bridges
+		targets := s.router.RoutePacket(dmrd, s.systemName)
+
+		// Forward to dynamically subscribed peers
+		dynamicTargets := s.findDynamicSubscribers(dmrd.DestinationID, uint8(dmrd.Timeslot), p.ID)
+
+		if len(targets) > 0 || len(dynamicTargets) > 0 {
+			s.log.Debug("Routing DMRD packet",
+				logger.Int("src", int(dmrd.SourceID)),
+				logger.Int("dst", int(dmrd.DestinationID)),
+				logger.Int("ts", dmrd.Timeslot),
+				logger.Int("static_targets", len(targets)),
+				logger.Int("dynamic_targets", len(dynamicTargets)))
+		}
+
+		// Forward to dynamic subscribers
+		if len(dynamicTargets) > 0 {
+			s.forwardToDynamicSubscribers(dmrd, data, dynamicTargets)
+		}
+	}
+
 	// Forward to other peers if repeat is enabled
 	if s.config.Repeat {
 		s.forwardDMRD(dmrd, data, p.ID)
+	}
+}
+
+// findDynamicSubscribers finds all peers that are subscribed to a talkgroup on ANY timeslot
+// (timeslot-agnostic for dynamic bridges) or have repeat mode enabled, excluding the source peer
+func (s *Server) findDynamicSubscribers(tgid uint32, timeslot uint8, sourcePeerID uint32) []*peer.Peer {
+	allPeers := s.peerManager.GetAllPeers()
+	subscribers := make([]*peer.Peer, 0)
+
+	s.log.Debug("Finding dynamic subscribers (timeslot-agnostic)",
+		logger.Int("tg", int(tgid)),
+		logger.Int("source_ts", int(timeslot)),
+		logger.Int("source_peer", int(sourcePeerID)),
+		logger.Int("total_peers", len(allPeers)))
+
+	for _, p := range allPeers {
+		// Skip source peer
+		if p.ID == sourcePeerID {
+			s.log.Debug("Skipping source peer", logger.Int("peer_id", int(p.ID)))
+			continue
+		}
+
+		// Only consider connected peers
+		if p.GetState() != peer.StateConnected {
+			s.log.Debug("Skipping non-connected peer",
+				logger.Int("peer_id", int(p.ID)),
+				logger.String("state", p.GetState().String()))
+			continue
+		}
+
+		// Check if peer has repeat mode enabled (receives all traffic)
+		if p.GetRepeatMode() {
+			s.log.Debug("Adding peer in repeat mode",
+				logger.Int("peer_id", int(p.ID)))
+			subscribers = append(subscribers, p)
+			continue
+		}
+
+		// Check if peer is subscribed to this talkgroup on ANY timeslot (timeslot-agnostic)
+		if p.Subscriptions != nil {
+			isSubscribed := p.Subscriptions.IsSubscribedToTalkgroup(tgid)
+			s.log.Debug("Checking peer subscription (any timeslot)",
+				logger.Int("peer_id", int(p.ID)),
+				logger.Int("tg", int(tgid)),
+				logger.Bool("is_subscribed", isSubscribed))
+			if isSubscribed {
+				subscribers = append(subscribers, p)
+			}
+		} else {
+			s.log.Debug("Peer has no subscriptions", logger.Int("peer_id", int(p.ID)))
+		}
+	}
+
+	s.log.Debug("Found subscribers",
+		logger.Int("tg", int(tgid)),
+		logger.Int("count", len(subscribers)))
+
+	return subscribers
+}
+
+// countTalkgroupSubscribers counts how many peers are subscribed to a talkgroup (any timeslot)
+func (s *Server) countTalkgroupSubscribers(tgid uint32) int {
+	allPeers := s.peerManager.GetAllPeers()
+	count := 0
+
+	for _, p := range allPeers {
+		if p.GetState() != peer.StateConnected {
+			continue
+		}
+
+		if p.Subscriptions != nil && p.Subscriptions.IsSubscribedToTalkgroup(tgid) {
+			count++
+		}
+	}
+
+	return count
+}
+
+// forwardToDynamicSubscribers forwards a DMRD packet to dynamic subscribers
+func (s *Server) forwardToDynamicSubscribers(dmrd *protocol.DMRDPacket, data []byte, targetPeers []*peer.Peer) {
+	for _, targetPeer := range targetPeers {
+		// Send packet
+		_, err := s.conn.WriteToUDP(data, targetPeer.Address)
+		if err != nil {
+			s.log.Error("Failed to forward DMRD to dynamic subscriber",
+				logger.Int("peer_id", int(targetPeer.ID)),
+				logger.Error(err))
+			continue
+		}
+
+		// Update stats
+		targetPeer.IncrementPacketsSent()
+		targetPeer.AddBytesSent(uint64(len(data)))
 	}
 }
 
@@ -449,6 +788,18 @@ func (s *Server) sendMSTPONG(peerID uint32, addr *net.UDPAddr) {
 	}
 }
 
+// sendMSTNAK sends a negative acknowledgement to an unknown peer
+func (s *Server) sendMSTNAK(peerID uint32, addr *net.UDPAddr) {
+	nak := make([]byte, protocol.MSTNAKPacketSize)
+	copy(nak[0:6], protocol.PacketTypeMSTNAK)
+	binary.BigEndian.PutUint32(nak[6:10], peerID)
+
+	_, err := s.conn.WriteToUDP(nak, addr)
+	if err != nil {
+		s.log.Debug("Failed to send MSTNAK", logger.Error(err))
+	}
+}
+
 // sendMSTCL sends a close/deny message to a peer
 func (s *Server) sendMSTCL(peerID uint32, addr *net.UDPAddr) {
 	cl := make([]byte, protocol.MSTCLPacketSize)
@@ -471,9 +822,26 @@ func (s *Server) cleanupLoop(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			// Cleanup timed out peers
 			removed := s.peerManager.CleanupTimedOutPeers(s.pingTimeout)
 			if removed > 0 {
 				s.log.Info("Cleaned up timed out peers", logger.Int("count", removed))
+			}
+
+			// Cleanup inactive dynamic bridges (5 minutes of no subscribers)
+			if s.router != nil {
+				removedBridges := s.router.CleanupInactiveDynamicBridges(5*time.Minute, s.countTalkgroupSubscribers)
+				if len(removedBridges) > 0 {
+					s.log.Info("Cleaned up inactive dynamic bridges",
+						logger.Int("count", len(removedBridges)))
+				}
+			}
+			// Cleanup expired muted streams (idle > 2s)
+			now := time.Now()
+			for streamID, expiry := range s.mutedStreams {
+				if now.After(expiry) {
+					delete(s.mutedStreams, streamID)
+				}
 			}
 		}
 	}

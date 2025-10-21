@@ -118,8 +118,13 @@ func (s *SubscriptionState) HasTalkgroup(tgid uint32, timeslot uint8) bool {
 		return false
 	}
 
-	// Check if expired (zero time means never expires)
-	if !expiryTime.IsZero() && time.Now().After(expiryTime) {
+	// Static (zero) or unlimited dynamic (sentinel) are always active
+	if expiryTime.IsZero() || expiryTime.Unix() == 1 {
+		return true
+	}
+
+	// TTL-based dynamic: check if expired
+	if time.Now().After(expiryTime) {
 		return false
 	}
 
@@ -145,11 +150,16 @@ func (s *SubscriptionState) GetTalkgroups(timeslot uint8) []uint32 {
 	result := make([]uint32, 0, len(tgMap))
 
 	for tgid, expiryTime := range tgMap {
-		// Skip expired entries (zero time means never expires)
-		if !expiryTime.IsZero() && now.After(expiryTime) {
+		// Keep static (zero) and unlimited dynamic (sentinel)
+		if expiryTime.IsZero() || expiryTime.Unix() == 1 {
+			result = append(result, tgid)
 			continue
 		}
-		result = append(result, tgid)
+
+		// Keep TTL-based if not expired
+		if now.Before(expiryTime) {
+			result = append(result, tgid)
+		}
 	}
 
 	return result
@@ -200,6 +210,178 @@ func (s *SubscriptionState) CleanupExpired() {
 			delete(s.TS2, tgid)
 		}
 	}
+}
+
+// AddDynamic adds a dynamic talkgroup subscription
+// Only allows one dynamic TG per timeslot - clears other dynamic TGs in the same slot
+// Uses the peer's AutoTTL setting (from OPTIONS) or unlimited if AutoTTL is 0
+// Returns true if this is a NEW subscription (first key-up), false if already subscribed
+func (s *SubscriptionState) AddDynamic(tgid uint32, timeslot uint8) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var tgMap map[uint32]time.Time
+	switch timeslot {
+	case 1:
+		tgMap = s.TS1
+	case 2:
+		tgMap = s.TS2
+	default:
+		return false
+	}
+
+	// Check if already subscribed to this TG (return false = not new)
+	if expiry, exists := tgMap[tgid]; exists {
+		// Already subscribed - just extend/refresh the TTL
+		// Only update if it's a dynamic subscription (has non-zero expiry)
+		// Static subscriptions (zero time) are never refreshed
+		if !expiry.IsZero() && s.AutoTTL > 0 {
+			tgMap[tgid] = time.Now().Add(s.AutoTTL)
+		}
+		s.LastUpdated = time.Now()
+		return false // Not a new subscription
+	}
+
+	// Clear all OTHER dynamic subscriptions in this timeslot (keep static ones)
+	// Static subscriptions have time.Time{} (zero value) as the marker
+	// Dynamic subscriptions have a sentinel value of time.Unix(1, 0) if unlimited
+	for existingTGID, existingExpiry := range tgMap {
+		// Keep static subscriptions (zero time) - those come from RPTC OPTIONS
+		// Remove all other subscriptions (both TTL-based and unlimited dynamic)
+		if existingTGID != tgid && !existingExpiry.IsZero() {
+			delete(tgMap, existingTGID)
+		}
+	}
+
+	// Add new subscription
+	// Use sentinel value time.Unix(1, 0) for unlimited dynamic subscriptions
+	// This distinguishes them from static subscriptions (zero time)
+	var expiryTime time.Time
+	if s.AutoTTL > 0 {
+		expiryTime = time.Now().Add(s.AutoTTL)
+	} else {
+		// Unlimited dynamic subscription - use sentinel value
+		expiryTime = time.Unix(1, 0)
+	}
+
+	tgMap[tgid] = expiryTime
+	s.LastUpdated = time.Now()
+	return true // This is a new subscription
+}
+
+// TouchDynamic extends the TTL for a dynamic subscription
+func (s *SubscriptionState) TouchDynamic(tgid uint32, timeslot uint8, ttl time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var tgMap map[uint32]time.Time
+	switch timeslot {
+	case 1:
+		tgMap = s.TS1
+	case 2:
+		tgMap = s.TS2
+	default:
+		return
+	}
+
+	if _, exists := tgMap[tgid]; exists {
+		tgMap[tgid] = time.Now().Add(ttl)
+		s.LastUpdated = time.Now()
+	}
+}
+
+// ClearAllDynamic removes all dynamic subscriptions while keeping static ones (from RPTC OPTIONS)
+// This is used when a peer transmits on the special disconnect TG (4000)
+// Static subscriptions have time.Time{} (zero value)
+// Dynamic subscriptions have either future time (TTL) or time.Unix(1, 0) (unlimited sentinel)
+func (s *SubscriptionState) ClearAllDynamic() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	count := 0
+
+	// Clear TS1 dynamic subscriptions (non-zero expiry time)
+	// Keep static subscriptions (zero time value)
+	for tgid, expiryTime := range s.TS1 {
+		if !expiryTime.IsZero() {
+			delete(s.TS1, tgid)
+			count++
+		}
+	}
+
+	// Clear TS2 dynamic subscriptions (non-zero expiry time)
+	// Keep static subscriptions (zero time value)
+	for tgid, expiryTime := range s.TS2 {
+		if !expiryTime.IsZero() {
+			delete(s.TS2, tgid)
+			count++
+		}
+	}
+
+	s.LastUpdated = time.Now()
+	return count
+}
+
+// IsSubscribed checks if the peer is subscribed to a specific talkgroup/timeslot
+// Returns true if subscribed (either static or dynamic and not expired)
+func (s *SubscriptionState) IsSubscribed(tgid uint32, timeslot uint8) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var tgMap map[uint32]time.Time
+	switch timeslot {
+	case 1:
+		tgMap = s.TS1
+	case 2:
+		tgMap = s.TS2
+	default:
+		return false
+	}
+
+	expiryTime, exists := tgMap[tgid]
+	if !exists {
+		return false
+	}
+
+	// Static subscription (zero time) always valid
+	if expiryTime.IsZero() {
+		return true
+	}
+
+	// Unlimited dynamic subscription sentinel (Unix epoch + 1 nanosecond)
+	if expiryTime.Unix() == 1 {
+		return true
+	}
+
+	// TTL-based dynamic subscription - check if expired
+	return time.Now().Before(expiryTime)
+}
+
+// IsSubscribedToTalkgroup checks if the peer is subscribed to a talkgroup on ANY timeslot
+// This is used for timeslot-agnostic dynamic bridges
+func (s *SubscriptionState) IsSubscribedToTalkgroup(tgid uint32) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+
+	// Check TS1
+	if expiryTime, exists := s.TS1[tgid]; exists {
+		// Static (zero) or unlimited dynamic (sentinel) or not expired TTL
+		if expiryTime.IsZero() || expiryTime.Unix() == 1 || now.Before(expiryTime) {
+			return true
+		}
+	}
+
+	// Check TS2
+	if expiryTime, exists := s.TS2[tgid]; exists {
+		// Static (zero) or unlimited dynamic (sentinel) or not expired TTL
+		if expiryTime.IsZero() || expiryTime.Unix() == 1 || now.Before(expiryTime) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ParseOptions parses an OPTIONS string into SubscriptionOptions

@@ -6,22 +6,27 @@ const (
 	PacketTypeRPTL    = "RPTL"
 	PacketTypeRPTK    = "RPTK"
 	PacketTypeRPTC    = "RPTC"
+	PacketTypeRPTCL   = "RPTCL"
 	PacketTypeRPTACK  = "RPTACK"
 	PacketTypeRPTPING = "RPTPING"
 	PacketTypeMSTPONG = "MSTPONG"
+	PacketTypeMSTNAK  = "MSTNAK"
 	PacketTypeMSTCL   = "MSTCL"
 )
 
 // Packet size constants (in bytes)
 const (
 	DMRDPacketSize           = 53  // Standard HBP DMRD packet
+	DMRDPacketSizeDroidStar  = 55  // DroidStar/client variant (adds 2 bytes BER+RSSI)
 	DMRDOpenBridgePacketSize = 73  // DMRD + 20 byte HMAC-SHA1 signature
 	RPTLPacketSize           = 8   // Login request (RPTL + 4 byte repeater ID)
 	RPTKPacketSize           = 40  // Key exchange (RPTK + 4 byte repeater ID + 32 byte challenge)
 	RPTCPacketSize           = 302 // Configuration packet
+	RPTCLPacketSize          = 9   // Close from peer (RPTCL + 4 byte repeater ID)
 	RPTACKPacketSize         = 10  // Acknowledgement (RPTACK + 4 byte repeater ID)
 	RPTPINGPacketSize        = 11  // Ping from peer (RPTPING + 4 byte repeater ID)
 	MSTPONGPacketSize        = 11  // Pong from master (MSTPONG + 4 byte repeater ID)
+	MSTNAKPacketSize         = 10  // Negative acknowledgement (MSTNAK + 4 byte repeater ID)
 	MSTCLPacketSize          = 9   // Close connection (MSTCL + 4 byte repeater ID)
 )
 

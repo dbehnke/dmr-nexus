@@ -72,7 +72,57 @@ type Peer struct {
 	// Dynamic subscription state
 	Subscriptions *SubscriptionState
 
+	// Repeat mode - when enabled, peer receives all traffic regardless of subscriptions
+	RepeatMode bool
+
 	mu sync.RWMutex
+}
+
+// Snapshot is a read-only view of a Peer suitable for API responses
+type Snapshot struct {
+	ID            uint32    `json:"id"`
+	Address       string    `json:"address"`
+	State         string    `json:"state"`
+	Callsign      string    `json:"callsign"`
+	Location      string    `json:"location"`
+	ConnectedAt   time.Time `json:"connected_at"`
+	LastHeard     time.Time `json:"last_heard"`
+	PacketsRx     uint64    `json:"packets_rx"`
+	BytesRx       uint64    `json:"bytes_rx"`
+	PacketsTx     uint64    `json:"packets_tx"`
+	BytesTx       uint64    `json:"bytes_tx"`
+	Subscriptions struct {
+		TS1 []uint32 `json:"ts1,omitempty"`
+		TS2 []uint32 `json:"ts2,omitempty"`
+	} `json:"subscriptions,omitempty"`
+}
+
+// Snapshot returns a consistent read-only snapshot of the peer's state
+func (p *Peer) Snapshot(includeSubscriptions bool) Snapshot {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	snap := Snapshot{
+		ID:          p.ID,
+		State:       p.State.String(),
+		Callsign:    p.Callsign,
+		Location:    p.Location,
+		ConnectedAt: p.ConnectedAt,
+		LastHeard:   p.LastHeard,
+		PacketsRx:   p.PacketsReceived,
+		BytesRx:     p.BytesReceived,
+		PacketsTx:   p.PacketsSent,
+		BytesTx:     p.BytesSent,
+	}
+	if p.Address != nil {
+		snap.Address = p.Address.String()
+	}
+	if includeSubscriptions && p.Subscriptions != nil {
+		// Use existing getters to provide active talkgroups only
+		snap.Subscriptions.TS1 = p.Subscriptions.GetTalkgroups(1)
+		snap.Subscriptions.TS2 = p.Subscriptions.GetTalkgroups(2)
+	}
+	return snap
 }
 
 // NewPeer creates a new peer with the given ID and address
@@ -245,3 +295,16 @@ func (p *Peer) UpdateSubscriptions(opts *SubscriptionOptions) error {
 	return p.Subscriptions.Update(opts)
 }
 
+// SetRepeatMode enables or disables repeat mode for this peer
+func (p *Peer) SetRepeatMode(enabled bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.RepeatMode = enabled
+}
+
+// GetRepeatMode returns whether repeat mode is enabled for this peer
+func (p *Peer) GetRepeatMode() bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.RepeatMode
+}

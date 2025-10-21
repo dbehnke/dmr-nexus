@@ -6,8 +6,19 @@ export const useAppStore = defineStore('app', {
     status: 'unknown',
     peers: [],
     bridges: [],
+    dynamicBridges: [],
     activity: [],
+    // Dark mode: 'light', 'dark', or 'system'
+    theme: localStorage.getItem('theme') || 'system',
   }),
+  getters: {
+    isDark(state) {
+      if (state.theme === 'system') {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches
+      }
+      return state.theme === 'dark'
+    }
+  },
   actions: {
     async fetchStatus() {
       const res = await axios.get('/api/status')
@@ -19,7 +30,13 @@ export const useAppStore = defineStore('app', {
     },
     async fetchBridges() {
       const res = await axios.get('/api/bridges')
-      this.bridges = Array.isArray(res.data) ? res.data : []
+      if (res.data) {
+        this.bridges = Array.isArray(res.data.static) ? res.data.static : []
+        this.dynamicBridges = Array.isArray(res.data.dynamic) ? res.data.dynamic : []
+      } else {
+        this.bridges = []
+        this.dynamicBridges = []
+      }
     },
     async fetchActivity() {
       const res = await axios.get('/api/activity')
@@ -28,6 +45,27 @@ export const useAppStore = defineStore('app', {
     pushActivity(event) {
       this.activity.unshift(event)
       this.activity = this.activity.slice(0, 200)
+    },
+    setTheme(theme) {
+      this.theme = theme
+      localStorage.setItem('theme', theme)
+      this.applyTheme()
+    },
+    applyTheme() {
+      if (this.isDark) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+    },
+    initTheme() {
+      this.applyTheme()
+      // Listen for system theme changes
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (this.theme === 'system') {
+          this.applyTheme()
+        }
+      })
     }
   }
 })
