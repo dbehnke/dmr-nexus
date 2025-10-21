@@ -8,6 +8,8 @@ export const useAppStore = defineStore('app', {
     bridges: [],
     dynamicBridges: [],
     activity: [],
+    transmissions: [],
+    transmissionsTotal: 0,
     // Dark mode: 'light', 'dark', or 'system'
     theme: localStorage.getItem('theme') || 'system',
   }),
@@ -41,6 +43,16 @@ export const useAppStore = defineStore('app', {
     async fetchActivity() {
       const res = await axios.get('/api/activity')
       this.activity = Array.isArray(res.data) ? res.data : []
+    },
+    async fetchTransmissions(page = 1, perPage = 50) {
+      const res = await axios.get(`/api/transmissions?page=${page}&per_page=${perPage}`)
+      if (res.data) {
+        this.transmissions = Array.isArray(res.data.transmissions) ? res.data.transmissions : []
+        this.transmissionsTotal = res.data.total || 0
+      } else {
+        this.transmissions = []
+        this.transmissionsTotal = 0
+      }
     },
     pushActivity(event) {
       this.activity.unshift(event)
