@@ -3,26 +3,53 @@ package web
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/dbehnke/dmr-nexus/pkg/bridge"
+	"github.com/dbehnke/dmr-nexus/pkg/database"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
 	"github.com/dbehnke/dmr-nexus/pkg/peer"
 )
 
 // API handles REST API endpoints
 type API struct {
-	logger *logger.Logger
-	peers  *peer.PeerManager
-	router *bridge.Router
+	logger    *logger.Logger
+	peers     *peer.PeerManager
+	router    *bridge.Router
+	txRepo    *database.TransmissionRepository
+	streamMap map[uint32]*streamActivity // Track active streams
+}
+
+// streamActivity tracks active transmission metadata
+type streamActivity struct {
+	streamID    uint32
+	radioID     uint32
+	talkgroupID uint32
+	timeslot    int
+	repeaterID  uint32
+	startTime   time.Time
+	lastSeen    time.Time
+	packetCount int
 }
 
 // NewAPI creates a new API instance
-func NewAPI(log *logger.Logger) *API { return &API{logger: log} }
+func NewAPI(log *logger.Logger) *API {
+	return &API{
+		logger:    log,
+		streamMap: make(map[uint32]*streamActivity),
+	}
+}
 
 // SetDeps provides runtime dependencies to the API after construction
 func (a *API) SetDeps(pm *peer.PeerManager, r *bridge.Router) {
 	a.peers = pm
 	a.router = r
+}
+
+// SetTransmissionRepo sets the transmission repository
+func (a *API) SetTransmissionRepo(repo *database.TransmissionRepository) {
+	a.txRepo = repo
 }
 
 // PeerDTO is a lightweight response for peer info
@@ -62,6 +89,20 @@ type DynamicBridgeDTO struct {
 	CreatedAt    int64    `json:"created_at"`
 	LastActivity int64    `json:"last_activity"`
 	Subscribers  []uint32 `json:"subscribers"`
+	Active       bool     `json:"active"` // Whether someone is currently talking
+}
+
+// TransmissionDTO is a lightweight response for transmissions
+type TransmissionDTO struct {
+	ID          uint    `json:"id"`
+	RadioID     uint32  `json:"radio_id"`
+	TalkgroupID uint32  `json:"talkgroup_id"`
+	Timeslot    int     `json:"timeslot"`
+	Duration    float64 `json:"duration"`
+	StartTime   int64   `json:"start_time"`
+	EndTime     int64   `json:"end_time"`
+	RepeaterID  uint32  `json:"repeater_id"`
+	PacketCount int     `json:"packet_count"`
 }
 
 // HandleStatus handles the /api/status endpoint
@@ -182,12 +223,16 @@ func (a *API) HandleBridges(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Check if this bridge is active (recent activity within 5 seconds)
+		active := time.Since(db.LastActivity) < 5*time.Second
+
 		dynamicBridges = append(dynamicBridges, DynamicBridgeDTO{
 			TGID:         db.TGID,
 			Timeslot:     db.Timeslot,
 			CreatedAt:    db.CreatedAt.Unix(),
 			LastActivity: db.LastActivity.Unix(),
 			Subscribers:  subscribers,
+			Active:       active,
 		})
 	}
 	response["dynamic"] = dynamicBridges
@@ -213,3 +258,80 @@ func (a *API) HandleActivity(w http.ResponseWriter, r *http.Request) {
 		a.logger.Error("Failed to encode activity response", logger.Error(err))
 	}
 }
+
+// HandleTransmissions handles the /api/transmissions endpoint
+func (a *API) HandleTransmissions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// If no transmission repo, return empty list
+	if a.txRepo == nil {
+		w.WriteHeader(http.StatusOK)
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"transmissions": []TransmissionDTO{},
+			"total":         0,
+			"page":          1,
+			"per_page":      50,
+		}); err != nil {
+			a.logger.Error("Failed to encode transmissions response", logger.Error(err))
+		}
+		return
+	}
+
+	// Parse pagination parameters
+	page := 1
+	perPage := 50
+
+	if pageStr := r.URL.Query().Get("page"); pageStr != "" {
+		if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+			page = p
+		}
+	}
+
+	if perPageStr := r.URL.Query().Get("per_page"); perPageStr != "" {
+		if pp, err := strconv.Atoi(perPageStr); err == nil && pp > 0 && pp <= 100 {
+			perPage = pp
+		}
+	}
+
+	// Get transmissions from database
+	transmissions, total, err := a.txRepo.GetRecentPaginated(page, perPage)
+	if err != nil {
+		a.logger.Error("Failed to get transmissions", logger.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to DTOs
+	dtos := make([]TransmissionDTO, 0, len(transmissions))
+	for _, tx := range transmissions {
+		dtos = append(dtos, TransmissionDTO{
+			ID:          tx.ID,
+			RadioID:     tx.RadioID,
+			TalkgroupID: tx.TalkgroupID,
+			Timeslot:    tx.Timeslot,
+			Duration:    tx.Duration,
+			StartTime:   tx.StartTime.Unix(),
+			EndTime:     tx.EndTime.Unix(),
+			RepeaterID:  tx.RepeaterID,
+			PacketCount: tx.PacketCount,
+		})
+	}
+
+	response := map[string]interface{}{
+		"transmissions": dtos,
+		"total":         total,
+		"page":          page,
+		"per_page":      perPage,
+	}
+
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		a.logger.Error("Failed to encode transmissions response", logger.Error(err))
+	}
+}
+

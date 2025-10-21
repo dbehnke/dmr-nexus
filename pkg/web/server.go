@@ -133,6 +133,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/peers", s.api.HandlePeers)
 	mux.HandleFunc("/api/bridges", s.api.HandleBridges)
 	mux.HandleFunc("/api/activity", s.api.HandleActivity)
+	mux.HandleFunc("/api/transmissions", s.api.HandleTransmissions)
 
 	// WebSocket endpoint
 	mux.Handle("/ws", s.hub.Handler())
