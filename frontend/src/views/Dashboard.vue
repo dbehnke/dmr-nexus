@@ -1,28 +1,22 @@
 <template>
-  <div style="padding:1rem;">
+  <div>
     <HeaderNav />
-    <h2>Overview</h2>
-    <p>Service status: {{ status }}</p>
+    <h2 class="text-xl font-medium mb-2">Overview</h2>
+    <p>Service status: <span class="font-semibold">{{ app.status }}</span></p>
   </div>
 </template>
 
 <script>
 import HeaderNav from '../components/HeaderNav.vue'
-import axios from 'axios'
+import { useAppStore } from '../stores/app'
 
 export default {
   name: 'Dashboard',
   components: { HeaderNav },
-  data() {
-    return { status: 'unknown' }
-  },
-  async mounted() {
-    try {
-      const res = await axios.get('/api/status')
-      this.status = res.data.status
-    } catch (e) {
-      this.status = 'error'
-    }
+  setup() {
+    const app = useAppStore()
+    app.fetchStatus().catch(() => {})
+    return { app }
   }
 }
 </script>

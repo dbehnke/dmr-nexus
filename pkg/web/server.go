@@ -51,6 +51,25 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start WebSocket hub
 	go s.hub.Run(ctx)
+	// Broadcast a lightweight heartbeat periodically so the UI can test realtime plumbing
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case t := <-ticker.C:
+				s.hub.Broadcast(Event{
+					Type:      "heartbeat",
+					Timestamp: t,
+					Data: map[string]interface{}{
+						"clients": s.hub.GetClientCount(),
+					},
+				})
+			}
+		}
+	}()
 
 	// Create HTTP router
 	mux := http.NewServeMux()
