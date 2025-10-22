@@ -1,3 +1,20 @@
+## Compose Build Helper
+
+This project includes a helper script located at `scripts/compose-build`. 
+This script is designed to build Docker Compose images using git-derived 
+information such as `VERSION`, `GIT_COMMIT`, and `BUILD_TIME`.
+
+### Usage
+
+To use the script, simply run:
+
+```sh
+scripts/compose-build
+```
+
+The script will create a temporary `.env` file, run `docker compose build`, 
+and then restore the original `.env` file if it exists.
+
 # DMR-Nexus
 
 A modern, high-performance DMR (Digital Mobile Radio) repeater networking system written in Go with an embedded Vue3 dashboard. Drop-in replacement for hblink3.
@@ -398,6 +415,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Thanks to the hblink3 project for the original Python implementation
 - DMR community for protocol development and testing
+
+## Building with embedded frontend
+
+If you want a single binary that contains the built Vue3 frontend (no external `frontend/dist` required at runtime), use the embed-aware Makefile target:
+
+```bash
+# Build an embedded binary (builds the frontend, copies artifacts, then builds the Go binary)
+make build-embed
+
+# The resulting binary will be at:
+./bin/dmr-nexus
+```
+
+Notes:
+- `make build-embed` runs the frontend build and then copies `frontend/dist` into `pkg/web/frontend/dist` so the `//go:embed` pattern used by the server can pick up the files at compile time.
+- The Dockerfile's backend build stage copies the frontend `dist` from the `frontend-builder` stage into the backend build context and runs a `go build -tags=embed`, so building the Docker image will also produce an embedded binary.
+- If you prefer not to embed, continue to use `make build` which keeps static assets on the filesystem (the server will serve `frontend/dist` from disk if present).
 - Go community for excellent networking libraries
 
 ## Current Status

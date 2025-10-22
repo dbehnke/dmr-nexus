@@ -77,6 +77,9 @@ func main() {
 
 	log.Debug("Debug logging enabled")
 
+	// Set version info for web API
+	web.SetVersionInfo(version, gitCommit, buildTime)
+
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

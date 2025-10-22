@@ -1,0 +1,39 @@
+#!/bin/sh
+# Helper to build docker compose images with git-derived VERSION/GIT_COMMIT/BUILD_TIME
+# Behavior: create a temporary .env (backing up existing .env), run `docker compose build`,
+# then restore the original .env. This makes `docker compose build` pick up the git tag by default.
+set -eu
+
+OLD_ENV=".env"
+BACKUP_ENV=".env.composebackup"
+
+if [ -f "$OLD_ENV" ]; then
+  echo "Backing up existing $OLD_ENV to $BACKUP_ENV"
+  mv "$OLD_ENV" "$BACKUP_ENV"
+  RESTORE=true
+else
+  RESTORE=false
+fi
+
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || printf "dev")
+GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || printf "unknown")
+BUILD_TIME=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+printf '%s\n' "VERSION=$VERSION" > "$OLD_ENV"
+printf 'GIT_COMMIT=%s\n' "$GIT_COMMIT" >> "$OLD_ENV"
+printf 'BUILD_TIME=%s\n' "$BUILD_TIME" >> "$OLD_ENV"
+
+echo "Wrote $OLD_ENV: VERSION=$VERSION, GIT_COMMIT=$GIT_COMMIT"
+
+docker compose build "$@"
+
+echo "docker compose build finished"
+
+if [ "$RESTORE" = true ]; then
+  echo "Restoring original $OLD_ENV"
+  mv "$BACKUP_ENV" "$OLD_ENV"
+else
+  echo "No original $OLD_ENV to restore; leaving generated file in place"
+fi
+
+exit 0

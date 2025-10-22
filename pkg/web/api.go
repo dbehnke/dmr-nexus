@@ -114,10 +114,14 @@ func (a *API) HandleStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
+	versionStr, commit, buildTime := GetVersionInfo()
+
 	response := map[string]interface{}{
-		"status":  "running",
-		"service": "dmr-nexus",
-		"version": "dev",
+		"status":     "running",
+		"service":    "dmr-nexus",
+		"version":    versionStr,
+		"commit":     commit,
+		"build_time": buildTime,
 	}
 
 	if err := json.NewEncoder(w).Encode(response); err != nil {

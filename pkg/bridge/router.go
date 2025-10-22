@@ -26,11 +26,11 @@ type Router struct {
 type DynamicBridge struct {
 	TGID            uint32
 	CreatedAt       time.Time
-	LastActivity    time.Time // Most recent activity on ANY timeslot
-	LastActivityTS1 time.Time // Most recent activity on TS1 (for diagnostics)
-	LastActivityTS2 time.Time // Most recent activity on TS2 (for diagnostics)
-	ActiveRadioID   uint32    // Radio ID currently transmitting (0 if none)
-	ActiveStreamID  uint32    // Active stream ID (0 if none)
+	LastActivity    time.Time       // Most recent activity on ANY timeslot
+	LastActivityTS1 time.Time       // Most recent activity on TS1 (for diagnostics)
+	LastActivityTS2 time.Time       // Most recent activity on TS2 (for diagnostics)
+	ActiveRadioID   uint32          // Radio ID currently transmitting (0 if none)
+	ActiveStreamID  uint32          // Active stream ID (0 if none)
 	Subscribers     map[uint32]bool // Peer IDs subscribed to this TG on ANY timeslot
 	mu              sync.RWMutex
 }
@@ -288,8 +288,8 @@ func (r *Router) GetOrCreateDynamicBridge(tgid uint32) *DynamicBridge {
 		LastActivity:    now,
 		LastActivityTS1: time.Time{}, // Zero time until we see TS1 activity
 		LastActivityTS2: time.Time{}, // Zero time until we see TS2 activity
-		ActiveRadioID:   0,            // No active transmission
-		ActiveStreamID:  0,            // No active stream
+		ActiveRadioID:   0,           // No active transmission
+		ActiveStreamID:  0,           // No active stream
 		Subscribers:     make(map[uint32]bool),
 	}
 	r.dynamicBridges[key] = bridge

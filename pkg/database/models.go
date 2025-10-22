@@ -8,17 +8,17 @@ import (
 
 // Transmission represents a DMR transmission record
 type Transmission struct {
-	ID           uint      `gorm:"primarykey" json:"id"`
-	RadioID      uint32    `gorm:"index;not null" json:"radio_id"`
-	TalkgroupID  uint32    `gorm:"index;not null" json:"talkgroup_id"`
-	Timeslot     int       `gorm:"not null" json:"timeslot"`
-	Duration     float64   `gorm:"not null" json:"duration"` // Duration in seconds
-	StreamID     uint32    `gorm:"index" json:"stream_id"`
-	StartTime    time.Time `gorm:"index;not null" json:"start_time"`
-	EndTime      time.Time `gorm:"not null" json:"end_time"`
-	RepeaterID   uint32    `gorm:"index" json:"repeater_id"`
-	PacketCount  int       `gorm:"default:0" json:"packet_count"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID          uint      `gorm:"primarykey" json:"id"`
+	RadioID     uint32    `gorm:"index;not null" json:"radio_id"`
+	TalkgroupID uint32    `gorm:"index;not null" json:"talkgroup_id"`
+	Timeslot    int       `gorm:"not null" json:"timeslot"`
+	Duration    float64   `gorm:"not null" json:"duration"` // Duration in seconds
+	StreamID    uint32    `gorm:"index" json:"stream_id"`
+	StartTime   time.Time `gorm:"index;not null" json:"start_time"`
+	EndTime     time.Time `gorm:"not null" json:"end_time"`
+	RepeaterID  uint32    `gorm:"index" json:"repeater_id"`
+	PacketCount int       `gorm:"default:0" json:"packet_count"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // TableName specifies the table name for Transmission

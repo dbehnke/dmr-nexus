@@ -88,11 +88,11 @@ func (r *TransmissionRepository) DeleteOlderThan(before time.Time) (int64, error
 func (r *TransmissionRepository) GetActiveStreamIDs(withinSeconds int) ([]uint32, error) {
 	var streamIDs []uint32
 	cutoff := time.Now().Add(-time.Duration(withinSeconds) * time.Second)
-	
+
 	err := r.db.Model(&Transmission{}).
 		Where("end_time > ?", cutoff).
 		Distinct("stream_id").
 		Pluck("stream_id", &streamIDs).Error
-	
+
 	return streamIDs, err
 }

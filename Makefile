@@ -1,4 +1,4 @@
-.PHONY: all build clean test test-coverage lint fmt vet deps dev frontend docker docker-compose-up docker-compose-down docker-push run help
+.PHONY: all build clean test test-coverage lint fmt vet deps dev frontend prepare-frontend-embed build-embed docker compose-build docker-compose-build docker-compose-up docker-compose-down docker-push run help
 
 # Variables
 BINARY_NAME=dmr-nexus
@@ -27,6 +27,25 @@ build: deps
 	@mkdir -p $(BUILD_DIR)
 	@CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/dmr-nexus
 
+
+
+## prepare-frontend-embed: Copy frontend build into package path so go:embed can find it
+# Note: this target only copies files. When building locally prefer `make build-embed`
+# which depends on the `frontend` target and will build the SPA first.
+prepare-frontend-embed:
+	@echo "$(BLUE)Preparing frontend assets for go:embed...$(NC)"
+	@rm -rf pkg/web/frontend/dist || true
+	@mkdir -p pkg/web/frontend
+	@cp -a $(FRONTEND_DIR)/dist pkg/web/frontend/
+
+
+## build-embed: Build the application with embedded frontend assets (uses -tags=embed)
+## This target builds the frontend locally first then copies and builds the binary.
+build-embed: deps frontend prepare-frontend-embed
+	@echo "$(BLUE)Building $(BINARY_NAME) with embedded frontend assets...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	@CGO_ENABLED=0 go build $(LDFLAGS) -tags=embed -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/dmr-nexus
+
 ## clean: Remove build artifacts
 clean:
 	@echo "$(BLUE)Cleaning build artifacts...$(NC)"
@@ -34,6 +53,7 @@ clean:
 	@rm -f coverage.txt coverage.html
 	@rm -rf $(FRONTEND_DIR)/dist
 	@rm -rf $(FRONTEND_DIR)/node_modules
+	@rm -rf pkg/web/frontend/dist || true
 
 ## test: Run tests
 test:
@@ -114,6 +134,14 @@ docker:
 docker-compose-up:
 	@echo "$(BLUE)Starting docker-compose services...$(NC)"
 	@VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) BUILD_TIME=$(BUILD_TIME) docker-compose up -d
+
+## compose-build: Build docker compose images using git-derived version info
+compose-build:
+	@echo "$(BLUE)Building docker compose images with VERSION=$(VERSION)...$(NC)"
+	@VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) BUILD_TIME=$(BUILD_TIME) docker compose build
+
+## docker-compose-build: compatibility alias for compose-build
+docker-compose-build: compose-build
 
 ## docker-compose-down: Stop docker-compose services
 docker-compose-down:

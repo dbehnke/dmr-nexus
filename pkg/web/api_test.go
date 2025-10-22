@@ -190,4 +190,3 @@ func TestHandleTransmissions_MethodNotAllowed(t *testing.T) {
 		t.Errorf("Expected status 405, got %d", w.Code)
 	}
 }
-
