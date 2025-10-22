@@ -72,29 +72,38 @@ func (tl *TransmissionLogger) LogPacket(streamID, radioID, talkgroupID, repeater
 	// If terminator, save to database and remove from active tracking
 	if isTerminator {
 		duration := stream.lastSeen.Sub(stream.startTime).Seconds()
-		
-		tx := &database.Transmission{
-			RadioID:     stream.radioID,
-			TalkgroupID: stream.talkgroupID,
-			Timeslot:    stream.timeslot,
-			Duration:    duration,
-			StreamID:    stream.streamID,
-			StartTime:   stream.startTime,
-			EndTime:     stream.lastSeen,
-			RepeaterID:  stream.repeaterID,
-			PacketCount: stream.packetCount,
-		}
 
-		if err := tl.repo.Create(tx); err != nil {
-			tl.logger.Error("Failed to save transmission",
-				logger.Error(err),
-				logger.Any("stream_id", streamID))
+		// Only save transmissions that are at least 0.5 seconds long
+		// Very short transmissions are likely spurious or duplicate packets
+		if duration >= 0.5 {
+			tx := &database.Transmission{
+				RadioID:     stream.radioID,
+				TalkgroupID: stream.talkgroupID,
+				Timeslot:    stream.timeslot,
+				Duration:    duration,
+				StreamID:    stream.streamID,
+				StartTime:   stream.startTime,
+				EndTime:     stream.lastSeen,
+				RepeaterID:  stream.repeaterID,
+				PacketCount: stream.packetCount,
+			}
+
+			if err := tl.repo.Create(tx); err != nil {
+				tl.logger.Error("Failed to save transmission",
+					logger.Error(err),
+					logger.Any("stream_id", streamID))
+			} else {
+				tl.logger.Debug("Saved transmission",
+					logger.Any("stream_id", streamID),
+					logger.Any("radio_id", stream.radioID),
+					logger.Any("talkgroup_id", stream.talkgroupID),
+					logger.Any("duration", duration))
+			}
 		} else {
-			tl.logger.Debug("Saved transmission",
+			tl.logger.Debug("Skipped saving very short transmission",
 				logger.Any("stream_id", streamID),
-				logger.Any("radio_id", stream.radioID),
-				logger.Any("talkgroup_id", stream.talkgroupID),
-				logger.Any("duration", duration))
+				logger.Any("duration", duration),
+				logger.Any("packet_count", stream.packetCount))
 		}
 
 		delete(tl.activeStreams, streamID)
@@ -109,30 +118,42 @@ func (tl *TransmissionLogger) CleanupStaleStreams(maxAge time.Duration) {
 
 	now := time.Now()
 	for streamID, stream := range tl.activeStreams {
-		if now.Sub(stream.lastSeen) > maxAge {
+		// Only cleanup streams where the last packet was seen more than maxAge ago
+		// This prevents cleaning up streams that just started (which would create <1s duplicates)
+		timeSinceLastPacket := now.Sub(stream.lastSeen)
+		if timeSinceLastPacket > maxAge {
 			// Stream is stale - save it and remove from tracking
 			duration := stream.lastSeen.Sub(stream.startTime).Seconds()
-			
-			tx := &database.Transmission{
-				RadioID:     stream.radioID,
-				TalkgroupID: stream.talkgroupID,
-				Timeslot:    stream.timeslot,
-				Duration:    duration,
-				StreamID:    stream.streamID,
-				StartTime:   stream.startTime,
-				EndTime:     stream.lastSeen,
-				RepeaterID:  stream.repeaterID,
-				PacketCount: stream.packetCount,
-			}
 
-			if err := tl.repo.Create(tx); err != nil {
-				tl.logger.Error("Failed to save stale transmission",
-					logger.Error(err),
-					logger.Any("stream_id", streamID))
+			// Only save transmissions that are at least 0.5 seconds long
+			if duration >= 0.5 {
+				tx := &database.Transmission{
+					RadioID:     stream.radioID,
+					TalkgroupID: stream.talkgroupID,
+					Timeslot:    stream.timeslot,
+					Duration:    duration,
+					StreamID:    stream.streamID,
+					StartTime:   stream.startTime,
+					EndTime:     stream.lastSeen,
+					RepeaterID:  stream.repeaterID,
+					PacketCount: stream.packetCount,
+				}
+
+				if err := tl.repo.Create(tx); err != nil {
+					tl.logger.Error("Failed to save stale transmission",
+						logger.Error(err),
+						logger.Any("stream_id", streamID))
+				} else {
+					tl.logger.Debug("Saved stale transmission",
+						logger.Any("stream_id", streamID),
+						logger.Any("radio_id", stream.radioID),
+						logger.Any("duration", duration),
+						logger.Any("time_since_last_packet", timeSinceLastPacket))
+				}
 			} else {
-				tl.logger.Debug("Saved stale transmission",
+				tl.logger.Debug("Skipped saving very short stale stream",
 					logger.Any("stream_id", streamID),
-					logger.Any("radio_id", stream.radioID))
+					logger.Any("duration", duration))
 			}
 
 			delete(tl.activeStreams, streamID)

@@ -38,14 +38,14 @@ func TestTransmissionLogger_LogPacket(t *testing.T) {
 		t.Errorf("Expected 1 active stream, got %d", count)
 	}
 
-	// Log more packets
-	time.Sleep(10 * time.Millisecond)
+	// Log more packets (sleep to make duration > 0.5s)
+	time.Sleep(200 * time.Millisecond)
 	txLogger.LogPacket(streamID, radioID, talkgroupID, repeaterID, timeslot, false)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	txLogger.LogPacket(streamID, radioID, talkgroupID, repeaterID, timeslot, false)
 
 	// Log terminator packet
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	txLogger.LogPacket(streamID, radioID, talkgroupID, repeaterID, timeslot, true)
 
 	// Check that stream was saved and removed from active
@@ -109,6 +109,9 @@ func TestTransmissionLogger_MultipleStreams(t *testing.T) {
 		t.Errorf("Expected 2 active streams, got %d", count)
 	}
 
+	// Sleep to make duration > 0.5s
+	time.Sleep(600 * time.Millisecond)
+
 	// End first stream
 	txLogger.LogPacket(stream1, 1000001, 91, 3001, 1, true)
 
@@ -156,8 +159,12 @@ func TestTransmissionLogger_CleanupStaleStreams(t *testing.T) {
 		t.Errorf("Expected 1 active stream, got %d", count)
 	}
 
-	// Wait a bit then cleanup with short max age
-	time.Sleep(50 * time.Millisecond)
+	// Wait to make duration > 0.5s
+	time.Sleep(600 * time.Millisecond)
+	txLogger.LogPacket(streamID, 1000001, 91, 3001, 1, false) // Log another packet to update lastSeen
+
+	// Wait more then cleanup with short max age
+	time.Sleep(100 * time.Millisecond)
 	txLogger.CleanupStaleStreams(10 * time.Millisecond)
 
 	// Stream should be cleaned up

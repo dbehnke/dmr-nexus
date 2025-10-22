@@ -41,6 +41,10 @@ docs/
 .github/
 .dagger/
 
+# Docker files (not needed in build context)
+docker-compose*.yml
+.dockerignore
+
 # Logs
 *.log
 logs/

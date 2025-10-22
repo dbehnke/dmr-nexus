@@ -1,5 +1,5 @@
 # Build stage for frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
@@ -8,14 +8,14 @@ COPY frontend/ ./
 RUN npm run build
 
 # Build stage for backend
-FROM golang:1.21-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 # Install build dependencies
 RUN apk add --no-cache git make
 
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -25,11 +25,21 @@ COPY . .
 # Copy frontend build from previous stage
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Build the application
+# Build the application with version information
 ARG VERSION=dev
+ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=unknown
-RUN go build \
-    -ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -s -w" \
+
+# If VERSION is "auto", try to get it from git
+RUN if [ "$VERSION" = "auto" ]; then \
+        VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+    fi && \
+    if [ "$GIT_COMMIT" = "auto" ]; then \
+        GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown"); \
+    fi && \
+    echo "Building version: ${VERSION} (${GIT_COMMIT})" && \
+    CGO_ENABLED=0 go build \
+    -ldflags "-X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildTime=${BUILD_TIME} -s -w" \
     -o /app/bin/dmr-nexus \
     ./cmd/dmr-nexus
 

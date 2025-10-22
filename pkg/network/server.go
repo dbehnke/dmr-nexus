@@ -561,7 +561,8 @@ func (s *Server) handleDMRD(data []byte, addr *net.UDPAddr) {
 
 		// Create/update dynamic bridge for dashboard visibility
 		// This doesn't affect forwarding logic - it's just for tracking/display
-		s.router.GetOrCreateDynamicBridge(dmrd.DestinationID, dmrd.Timeslot)
+		// Bridges are now timeslot-agnostic
+		s.router.GetOrCreateDynamicBridge(dmrd.DestinationID)
 
 		// If this is the first key-up (new subscription), mark this stream muted
 		if isNewSubscription {

@@ -94,7 +94,8 @@ func (n *MockNetwork) Close() {
 	defer n.mu.Unlock()
 
 	for _, listener := range n.listeners {
-		listener.Close()
+		// Close each listener and ignore the error since this is cleanup for tests
+		_ = listener.Close()
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 
 var (
 	version   = "dev"
+	gitCommit = "unknown"
 	buildTime = "unknown"
 )
 
@@ -35,7 +36,9 @@ func main() {
 
 	// Show version
 	if *showVersion {
-		fmt.Printf("DMR-Nexus %s (built %s)\n", version, buildTime)
+		fmt.Printf("DMR-Nexus %s\n", version)
+		fmt.Printf("Git Commit: %s\n", gitCommit)
+		fmt.Printf("Built: %s\n", buildTime)
 		os.Exit(0)
 	}
 
@@ -47,6 +50,7 @@ func main() {
 
 	log.Info("Starting DMR-Nexus",
 		logger.String("version", version),
+		logger.String("commit", gitCommit),
 		logger.String("build_time", buildTime))
 
 	// Load configuration

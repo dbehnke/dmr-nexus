@@ -11,14 +11,14 @@ import (
 func TestNewDB(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_dmr_nexus.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if db.db == nil {
 		t.Error("Expected non-nil database connection")
@@ -27,14 +27,14 @@ func TestNewDB(t *testing.T) {
 
 func TestNewDB_DefaultPath(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
-	defer os.Remove("dmr-nexus.db")
+	defer func() { _ = os.Remove("dmr-nexus.db") }()
 
 	cfg := Config{}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database with default path: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	if db.db == nil {
 		t.Error("Expected non-nil database connection")
@@ -44,14 +44,14 @@ func TestNewDB_DefaultPath(t *testing.T) {
 func TestTransmission_BeforeCreate(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_transmission_create.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	// Create transmission without timestamps
 	tx := &Transmission{
@@ -87,14 +87,14 @@ func TestTransmission_BeforeCreate(t *testing.T) {
 func TestTransmissionRepository_Create(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_repo_create.db"
-	defer os.Remove(dbPath)
+	defer func() { _ = os.Remove(dbPath) }()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	repo := NewTransmissionRepository(db.GetDB())
 

@@ -51,8 +51,14 @@ func NewDB(cfg Config, log *logger.Logger) (*DB, error) {
 		},
 	)
 
-	// Open database with modernc.org/sqlite driver
-	db, err := gorm.Open(sqlite.Open(cfg.Path), &gorm.Config{
+	// Open database with modernc.org/sqlite (pure Go) driver
+	// Using the Dialector interface to specify the pure Go driver
+	dialector := sqlite.Dialector{
+		DriverName: "sqlite",
+		DSN:        cfg.Path,
+	}
+
+	db, err := gorm.Open(dialector, &gorm.Config{
 		Logger: gormLog,
 	})
 	if err != nil {

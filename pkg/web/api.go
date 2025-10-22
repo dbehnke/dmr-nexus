@@ -14,30 +14,22 @@ import (
 
 // API handles REST API endpoints
 type API struct {
-	logger    *logger.Logger
-	peers     *peer.PeerManager
-	router    *bridge.Router
-	txRepo    *database.TransmissionRepository
-	streamMap map[uint32]*streamActivity // Track active streams
+	logger *logger.Logger
+	peers  *peer.PeerManager
+	router *bridge.Router
+	txRepo *database.TransmissionRepository
 }
 
 // streamActivity tracks active transmission metadata
-type streamActivity struct {
-	streamID    uint32
-	radioID     uint32
-	talkgroupID uint32
-	timeslot    int
-	repeaterID  uint32
-	startTime   time.Time
-	lastSeen    time.Time
-	packetCount int
-}
+// streamActivity previously tracked active transmission metadata. It was
+// removed because the API currently uses the Transmission repository and
+// router/dynamic bridge activity timestamps. Reintroduce if active stream
+// tracking is required in the future.
 
 // NewAPI creates a new API instance
 func NewAPI(log *logger.Logger) *API {
 	return &API{
-		logger:    log,
-		streamMap: make(map[uint32]*streamActivity),
+		logger: log,
 	}
 }
 
@@ -82,14 +74,21 @@ type BridgeRuleDTO struct {
 	Active   bool   `json:"active"`
 }
 
+// SubscriberInfo represents a subscriber and which timeslot(s) they're subscribed on
+type SubscriberInfo struct {
+	PeerID   uint32 `json:"peer_id"`
+	Timeslot int    `json:"timeslot"` // 1=TS1 only, 2=TS2 only, 3=both timeslots
+}
+
 // DynamicBridgeDTO is a lightweight response for dynamic bridges
+// Bridges are timeslot-agnostic - they show all subscribers across both timeslots
 type DynamicBridgeDTO struct {
-	TGID         uint32   `json:"tgid"`
-	Timeslot     int      `json:"timeslot"`
-	CreatedAt    int64    `json:"created_at"`
-	LastActivity int64    `json:"last_activity"`
-	Subscribers  []uint32 `json:"subscribers"`
-	Active       bool     `json:"active"` // Whether someone is currently talking
+	TGID          uint32           `json:"tgid"`
+	CreatedAt     int64            `json:"created_at"`
+	LastActivity  int64            `json:"last_activity"`
+	Subscribers   []SubscriberInfo `json:"subscribers"`
+	Active        bool             `json:"active"`          // Whether someone is currently talking
+	ActiveRadioID uint32           `json:"active_radio_id"` // Radio ID currently transmitting (0 if none)
 }
 
 // TransmissionDTO is a lightweight response for transmissions
@@ -211,14 +210,35 @@ func (a *API) HandleBridges(w http.ResponseWriter, r *http.Request) {
 	dynamicBridges := make([]DynamicBridgeDTO, 0)
 	for _, db := range a.router.GetAllDynamicBridges() {
 		// Derive subscribers from current peer subscriptions to avoid stale data
-		subscribers := make([]uint32, 0)
+		// Check which timeslot(s) each subscriber is on
+		subscribers := make([]SubscriberInfo, 0)
 		if a.peers != nil {
 			for _, p := range a.peers.GetAllPeers() {
 				if p.GetState().String() != "connected" {
 					continue
 				}
-				if p.Subscriptions != nil && p.Subscriptions.IsSubscribedToTalkgroup(db.TGID) {
-					subscribers = append(subscribers, p.ID)
+				if p.Subscriptions == nil {
+					continue
+				}
+
+				// Check if subscribed on TS1, TS2, or both
+				ts1 := p.Subscriptions.IsSubscribed(db.TGID, 1)
+				ts2 := p.Subscriptions.IsSubscribed(db.TGID, 2)
+
+				if ts1 || ts2 {
+					timeslot := 0
+					if ts1 && ts2 {
+						timeslot = 3 // Both timeslots
+					} else if ts1 {
+						timeslot = 1 // TS1 only
+					} else {
+						timeslot = 2 // TS2 only
+					}
+
+					subscribers = append(subscribers, SubscriberInfo{
+						PeerID:   p.ID,
+						Timeslot: timeslot,
+					})
 				}
 			}
 		}
@@ -227,12 +247,12 @@ func (a *API) HandleBridges(w http.ResponseWriter, r *http.Request) {
 		active := time.Since(db.LastActivity) < 5*time.Second
 
 		dynamicBridges = append(dynamicBridges, DynamicBridgeDTO{
-			TGID:         db.TGID,
-			Timeslot:     db.Timeslot,
-			CreatedAt:    db.CreatedAt.Unix(),
-			LastActivity: db.LastActivity.Unix(),
-			Subscribers:  subscribers,
-			Active:       active,
+			TGID:          db.TGID,
+			CreatedAt:     db.CreatedAt.Unix(),
+			LastActivity:  db.LastActivity.Unix(),
+			Subscribers:   subscribers,
+			Active:        active,
+			ActiveRadioID: db.ActiveRadioID,
 		})
 	}
 	response["dynamic"] = dynamicBridges
@@ -334,4 +354,3 @@ func (a *API) HandleTransmissions(w http.ResponseWriter, r *http.Request) {
 		a.logger.Error("Failed to encode transmissions response", logger.Error(err))
 	}
 }
-

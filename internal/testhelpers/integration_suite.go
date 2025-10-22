@@ -65,7 +65,7 @@ func (s *IntegrationSuite) GetFreePort() int {
 	if err != nil {
 		s.T.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	return listener.Addr().(*net.TCPAddr).Port
 }
@@ -102,7 +102,7 @@ func (s *IntegrationSuite) StopTestServer() {
 func (s *IntegrationSuite) Cleanup() {
 	// Close all mock peers
 	for _, peer := range s.MockPeers {
-		peer.Close()
+		_ = peer.Close()
 	}
 
 	// Stop test server

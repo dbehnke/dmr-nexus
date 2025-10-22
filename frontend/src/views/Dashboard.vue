@@ -25,7 +25,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         <div
           v-for="bridge in app.dynamicBridges"
-          :key="`dynamic-${bridge.tgid}-${bridge.timeslot}`"
+          :key="`dynamic-${bridge.tgid}`"
           :class="[
             'p-4 rounded-lg shadow border transition-colors duration-200',
             bridge.active
@@ -38,11 +38,11 @@
               <div class="text-xl font-bold text-gray-900 dark:text-gray-100">
                 {{ bridge.tgid }}
               </div>
-              <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                TS{{ bridge.timeslot }}
+              <div v-if="bridge.active && bridge.active_radio_id" class="text-xs text-red-600 dark:text-red-400 font-semibold mt-1">
+                {{ bridge.active_radio_id }}
               </div>
               <div class="text-sm text-gray-600 dark:text-gray-300 mt-2">
-                {{ bridge.subscribers.length }} subscriber{{ bridge.subscribers.length !== 1 ? 's' : '' }}
+                {{ formatSubscribers(bridge.subscribers) }}
               </div>
             </div>
             <div v-if="bridge.active" class="flex-shrink-0 ml-2">
@@ -132,12 +132,12 @@ export default {
       const secs = Math.floor(seconds % 60)
       return `${mins}m ${secs}s`
     }
-    
+
     const formatTime = (unixTimestamp) => {
       const date = new Date(unixTimestamp * 1000)
       const now = new Date()
       const diff = now - date
-      
+
       // Less than 1 minute
       if (diff < 60000) {
         return 'just now'
@@ -154,6 +154,24 @@ export default {
       }
       // Use locale time
       return date.toLocaleTimeString()
+    }
+
+    const formatSubscribers = (subscribers) => {
+      if (!subscribers || subscribers.length === 0) {
+        return 'No subscribers'
+      }
+
+      // Count subscribers by timeslot
+      const ts1Only = subscribers.filter(s => s.timeslot === 1).length
+      const ts2Only = subscribers.filter(s => s.timeslot === 2).length
+      const both = subscribers.filter(s => s.timeslot === 3).length
+
+      const parts = []
+      if (ts1Only > 0) parts.push(`${ts1Only} TS1`)
+      if (ts2Only > 0) parts.push(`${ts2Only} TS2`)
+      if (both > 0) parts.push(`${both} both`)
+
+      return parts.join(', ')
     }
     
     const fetchData = () => {
@@ -175,7 +193,7 @@ export default {
       }
     })
     
-    return { app, formatDuration, formatTime }
+    return { app, formatDuration, formatTime, formatSubscribers }
   }
 }
 </script>
