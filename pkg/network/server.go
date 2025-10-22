@@ -727,7 +727,7 @@ func (s *Server) countTalkgroupSubscribers(tgid uint32) int {
 }
 
 // forwardToDynamicSubscribers forwards a DMRD packet to dynamic subscribers
-func (s *Server) forwardToDynamicSubscribers(dmrd *protocol.DMRDPacket, data []byte, targetPeers []*peer.Peer) {
+func (s *Server) forwardToDynamicSubscribers(_ *protocol.DMRDPacket, data []byte, targetPeers []*peer.Peer) {
 	for _, targetPeer := range targetPeers {
 		// Send packet
 		_, err := s.conn.WriteToUDP(data, targetPeer.Address)
@@ -745,7 +745,7 @@ func (s *Server) forwardToDynamicSubscribers(dmrd *protocol.DMRDPacket, data []b
 }
 
 // forwardDMRD forwards a DMRD packet to all other connected peers
-func (s *Server) forwardDMRD(dmrd *protocol.DMRDPacket, data []byte, sourcePeerID uint32) {
+func (s *Server) forwardDMRD(_ *protocol.DMRDPacket, data []byte, sourcePeerID uint32) {
 	peers := s.peerManager.GetAllPeers()
 	for _, p := range peers {
 		// Don't send back to source
@@ -815,6 +815,10 @@ func (s *Server) sendMSTNAK(peerID uint32, addr *net.UDPAddr) {
 		s.log.Debug("Failed to send MSTNAK", logger.Error(err))
 	}
 }
+
+// Reference the method to avoid unusedfunc diagnostics in editors/tools that
+// warn about unused methods even when they are intentionally kept for future use.
+var _ = (*Server).sendMSTNAK
 
 // sendMSTCL sends a close/deny message to a peer
 func (s *Server) sendMSTCL(peerID uint32, addr *net.UDPAddr) {
