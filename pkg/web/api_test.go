@@ -108,13 +108,21 @@ func TestHandleTransmissions_NoRepo(t *testing.T) {
 func TestHandleTransmissions_WithData(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_api_transmissions.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	db, err := database.NewDB(database.Config{Path: dbPath}, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := database.NewTransmissionRepository(db.GetDB())
 

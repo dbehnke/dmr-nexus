@@ -12,13 +12,21 @@ import (
 func TestTransmissionLogger_LogPacket(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_tx_logger.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	db, err := database.NewDB(database.Config{Path: dbPath}, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := database.NewTransmissionRepository(db.GetDB())
 	txLogger := NewTransmissionLogger(repo, log)
@@ -87,13 +95,21 @@ func TestTransmissionLogger_LogPacket(t *testing.T) {
 func TestTransmissionLogger_MultipleStreams(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_tx_logger_multi.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	db, err := database.NewDB(database.Config{Path: dbPath}, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := database.NewTransmissionRepository(db.GetDB())
 	txLogger := NewTransmissionLogger(repo, log)
@@ -140,13 +156,21 @@ func TestTransmissionLogger_MultipleStreams(t *testing.T) {
 func TestTransmissionLogger_CleanupStaleStreams(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_tx_logger_cleanup.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	db, err := database.NewDB(database.Config{Path: dbPath}, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := database.NewTransmissionRepository(db.GetDB())
 	txLogger := NewTransmissionLogger(repo, log)

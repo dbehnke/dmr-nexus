@@ -102,7 +102,11 @@ func main() {
 		log.Error("Failed to initialize database", logger.Error(err))
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Error("Failed to close database", logger.Error(err))
+		}
+	}()
 
 	txRepo := database.NewTransmissionRepository(db.GetDB())
 	log.Info("Database initialized")
