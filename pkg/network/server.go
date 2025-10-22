@@ -278,6 +278,8 @@ func (s *Server) handlePacket(data []byte, addr *net.UDPAddr) {
 		s.handleRPTK(data, addr)
 	case protocol.PacketTypeRPTC:
 		s.handleRPTC(data, addr)
+	case protocol.PacketTypeRPTO:
+		s.handleRPTO(data, addr)
 	case protocol.PacketTypeRPTCL:
 		s.handleRPTCL(data, addr)
 	case protocol.PacketTypeRPTPING:
@@ -387,6 +389,64 @@ func (s *Server) handleRPTC(data []byte, addr *net.UDPAddr) {
 	// Send RPTACK
 	// The client enters DMR_CONF state and expects RPTACK to trigger setup_connection()
 	s.sendRPTACK(rptc.RepeaterID, addr)
+}
+
+// handleRPTO handles OPTIONS packets from peers
+func (s *Server) handleRPTO(data []byte, addr *net.UDPAddr) {
+	// RPTO packet format: "RPTO" + 4 byte repeater ID + OPTIONS string
+	if len(data) < 8 {
+		s.log.Debug("RPTO packet too small", logger.Int("size", len(data)))
+		return
+	}
+
+	// Extract repeater ID (bytes 4-8)
+	peerID := binary.BigEndian.Uint32(data[4:8])
+
+	// Get peer
+	p := s.peerManager.GetPeer(peerID)
+	if p == nil {
+		s.log.Warn("RPTO from unknown peer", logger.Int("peer_id", int(peerID)))
+		return
+	}
+
+	// Extract OPTIONS string (everything after the 8-byte header)
+	var optionsStr string
+	if len(data) > 8 {
+		optionsStr = string(data[8:])
+	}
+
+	s.log.Info("Received RPTO",
+		logger.Int("peer_id", int(peerID)),
+		logger.String("options", optionsStr))
+
+	// Parse and update peer subscriptions if OPTIONS provided
+	if optionsStr != "" {
+		if opts, err := peer.ParseOptions(optionsStr); err == nil {
+			if p.Subscriptions != nil {
+				if err := p.Subscriptions.Update(opts); err != nil {
+					s.log.Warn("Failed to update peer subscriptions",
+						logger.Int("peer_id", int(peerID)),
+						logger.Error(err))
+				} else {
+					s.log.Debug("Updated peer subscriptions from RPTO",
+						logger.Int("peer_id", int(peerID)),
+						logger.Int("ts1_count", len(opts.TS1)),
+						logger.Int("ts2_count", len(opts.TS2)))
+				}
+			}
+		} else {
+			s.log.Warn("Failed to parse OPTIONS",
+				logger.Int("peer_id", int(peerID)),
+				logger.String("options", optionsStr),
+				logger.Error(err))
+		}
+	}
+
+	// Update last heard
+	p.UpdateLastHeard()
+
+	// Send RPTACK to acknowledge OPTIONS
+	s.sendRPTACK(peerID, addr)
 }
 
 // handleRPTPING handles keepalive pings from peers
