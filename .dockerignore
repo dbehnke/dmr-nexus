@@ -1,6 +1,7 @@
 # Git
-.git
-.gitignore
+# Include .git in build context so build-time git metadata can be computed inside the builder.
+# .gitignore remains useful locally but should not be excluded from the build context when you
+# need embedded version information.
 
 # Build artifacts
 bin/
@@ -40,6 +41,10 @@ docs/
 # CI/CD
 .github/
 .dagger/
+
+# Docker files (not needed in build context)
+docker-compose*.yml
+.dockerignore
 
 # Logs
 *.log

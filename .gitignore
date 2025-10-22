@@ -60,3 +60,9 @@ temp/
 
 dmr-nexus.yaml
 dmr-nexus
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+data/

@@ -1,12 +1,13 @@
-.PHONY: all build clean test test-coverage lint fmt vet deps dev frontend docker run help
+.PHONY: all build clean test test-coverage lint fmt vet deps dev frontend prepare-frontend-embed build-embed docker compose-build docker-compose-build docker-compose-up docker-compose-down docker-push run help
 
 # Variables
 BINARY_NAME=dmr-nexus
 BUILD_DIR=bin
 FRONTEND_DIR=frontend
-VERSION?=$(shell git describe --tags --always --dirty)
-BUILD_TIME=$(shell date -u '+%Y-%m-%d_%H:%M:%S')
-LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)"
+VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+GIT_COMMIT?=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TIME=$(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LDFLAGS=-ldflags "-X main.version=$(VERSION) -X main.gitCommit=$(GIT_COMMIT) -X main.buildTime=$(BUILD_TIME) -s -w"
 
 # Colors for output
 BLUE=\033[0;34m
@@ -24,7 +25,26 @@ help:
 build: deps
 	@echo "$(BLUE)Building $(BINARY_NAME)...$(NC)"
 	@mkdir -p $(BUILD_DIR)
-	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/dmr-nexus
+	@CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/dmr-nexus
+
+
+
+## prepare-frontend-embed: Copy frontend build into package path so go:embed can find it
+# Note: this target only copies files. When building locally prefer `make build-embed`
+# which depends on the `frontend` target and will build the SPA first.
+prepare-frontend-embed:
+	@echo "$(BLUE)Preparing frontend assets for go:embed...$(NC)"
+	@rm -rf pkg/web/frontend/dist || true
+	@mkdir -p pkg/web/frontend
+	@cp -a $(FRONTEND_DIR)/dist pkg/web/frontend/
+
+
+## build-embed: Build the application with embedded frontend assets (uses -tags=embed)
+## This target builds the frontend locally first then copies and builds the binary.
+build-embed: deps frontend prepare-frontend-embed
+	@echo "$(BLUE)Building $(BINARY_NAME) with embedded frontend assets...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	@CGO_ENABLED=0 go build $(LDFLAGS) -tags=embed -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/dmr-nexus
 
 ## clean: Remove build artifacts
 clean:
@@ -33,6 +53,7 @@ clean:
 	@rm -f coverage.txt coverage.html
 	@rm -rf $(FRONTEND_DIR)/dist
 	@rm -rf $(FRONTEND_DIR)/node_modules
+	@rm -rf pkg/web/frontend/dist || true
 
 ## test: Run tests
 test:
@@ -95,11 +116,37 @@ frontend:
 		npm install; \
 	fi && npm run build
 
-## docker: Build Docker image
+## docker: Build Docker image with version info
 docker:
 	@echo "$(BLUE)Building Docker image...$(NC)"
-	@docker build -t $(BINARY_NAME):$(VERSION) .
-	@docker tag $(BINARY_NAME):$(VERSION) $(BINARY_NAME):latest
+	@echo "Version: $(VERSION)"
+	@echo "Commit:  $(GIT_COMMIT)"
+	@echo "Build:   $(BUILD_TIME)"
+	@docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
+		--build-arg BUILD_TIME=$(BUILD_TIME) \
+		-t $(BINARY_NAME):$(VERSION) \
+		-t $(BINARY_NAME):latest \
+		.
+
+## docker-compose-up: Start services with docker-compose
+docker-compose-up:
+	@echo "$(BLUE)Starting docker-compose services...$(NC)"
+	@VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) BUILD_TIME=$(BUILD_TIME) docker-compose up -d
+
+## compose-build: Build docker compose images using git-derived version info
+compose-build:
+	@echo "$(BLUE)Building docker compose images with VERSION=$(VERSION)...$(NC)"
+	@VERSION=$(VERSION) GIT_COMMIT=$(GIT_COMMIT) BUILD_TIME=$(BUILD_TIME) docker compose build
+
+## docker-compose-build: compatibility alias for compose-build
+docker-compose-build: compose-build
+
+## docker-compose-down: Stop docker-compose services
+docker-compose-down:
+	@echo "$(BLUE)Stopping docker-compose services...$(NC)"
+	@docker-compose down
 
 ## docker-push: Push Docker image to registry
 docker-push: docker

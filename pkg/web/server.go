@@ -133,37 +133,44 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/peers", s.api.HandlePeers)
 	mux.HandleFunc("/api/bridges", s.api.HandleBridges)
 	mux.HandleFunc("/api/activity", s.api.HandleActivity)
+	mux.HandleFunc("/api/transmissions", s.api.HandleTransmissions)
 
 	// WebSocket endpoint
 	mux.Handle("/ws", s.hub.Handler())
 
-	// Serve static frontend assets if present (frontend/dist)
-	staticDir := "frontend/dist"
-	// If the directory exists, mount a file handler with SPA fallback
-	if fi, err := os.Stat(staticDir); err == nil && fi.IsDir() {
-		s.logger.Info("Serving static frontend assets", logger.String("dir", staticDir))
-		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			// Clean the path and try to serve the requested file
-			reqPath := filepath.Clean(r.URL.Path)
-			// Disallow path traversal outside staticDir
-			if reqPath == "/" {
-				http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
-				return
-			}
-			// Trim leading '/'
-			if len(reqPath) > 0 && reqPath[0] == '/' {
-				reqPath = reqPath[1:]
-			}
-			fullPath := filepath.Join(staticDir, reqPath)
-			if fi, err := os.Stat(fullPath); err == nil && !fi.IsDir() {
-				http.ServeFile(w, r, fullPath)
-				return
-			}
-			// Fallback to index.html for SPA routes
-			http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
-		})
+	// Try embedded static assets first (built into the binary via go:embed)
+	if fsys, err := embeddedStaticFS(); err == nil && fsys != nil {
+		s.logger.Info("Serving embedded frontend assets")
+		fileServer := http.FileServer(fsys)
+		mux.Handle("/", fileServer)
 	} else {
-		s.logger.Info("No static frontend assets found; SPA not served", logger.String("dir", staticDir))
+		// Fallback to filesystem directory
+		staticDir := "frontend/dist"
+		if fi, err := os.Stat(staticDir); err == nil && fi.IsDir() {
+			s.logger.Info("Serving static frontend assets", logger.String("dir", staticDir))
+			mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				// Clean the path and try to serve the requested file
+				reqPath := filepath.Clean(r.URL.Path)
+				// Disallow path traversal outside staticDir
+				if reqPath == "/" {
+					http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+					return
+				}
+				// Trim leading '/'
+				if len(reqPath) > 0 && reqPath[0] == '/' {
+					reqPath = reqPath[1:]
+				}
+				fullPath := filepath.Join(staticDir, reqPath)
+				if fi, err := os.Stat(fullPath); err == nil && !fi.IsDir() {
+					http.ServeFile(w, r, fullPath)
+					return
+				}
+				// Fallback to index.html for SPA routes
+				http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+			})
+		} else {
+			s.logger.Info("No static frontend assets found; SPA not served", logger.String("dir", staticDir))
+		}
 	}
 
 	// Determine address
@@ -225,6 +232,11 @@ func (s *Server) GetAddr() string {
 // GetHub returns the WebSocket hub
 func (s *Server) GetHub() *WebSocketHub {
 	return s.hub
+}
+
+// GetAPI returns the API instance
+func (s *Server) GetAPI() *API {
+	return s.api
 }
 
 // PeerConnectedHandler returns a function suitable for network server hook

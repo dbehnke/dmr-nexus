@@ -1,21 +1,25 @@
 # Build stage for frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:24-alpine AS frontend-builder
 
+# Use repository root for build context (package.json and src live at repo root)
+WORKDIR /app
+# Copy package files from repo root
+COPY frontend ./frontend
 WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ ./
+RUN npm ci --production=false
+
+# Build the frontend. Output (vite) typically goes to ./dist
 RUN npm run build
 
 # Build stage for backend
-FROM golang:1.21-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 # Install build dependencies
 RUN apk add --no-cache git make
 
 WORKDIR /app
 
-# Copy go mod files
+# Copy go mod files first for better caching
 COPY go.mod go.sum ./
 RUN go mod download
 
@@ -23,15 +27,24 @@ RUN go mod download
 COPY . .
 
 # Copy frontend build from previous stage
+
+# Copy built frontend from frontend-builder's /app/frontend/dist into pkg/web/frontend/dist
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Build the application
+# Diagnostic check: ensure pkg/web/frontend/dist exists and list contents (fail fast with helpful output)
+RUN if [ -d ./frontend/dist ]; then echo "frontend/dist contents:" && ls -la ./frontend/dist; else echo "ERROR: frontend/dist not found in backend-builder" && ls -la . && false; fi
+
+# Build the application with version information
 ARG VERSION=dev
+ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=unknown
-RUN go build \
-    -ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -s -w" \
-    -o /app/bin/dmr-nexus \
-    ./cmd/dmr-nexus
+
+# If VERSION/GIT_COMMIT/BUILD_TIME not passed as build-args, compute them here and run the docker build helper
+COPY scripts/docker-build-embed.sh /app/scripts/docker-build-embed.sh
+# Run the build helper and pass build ARGs through; if the ARGs were not provided
+# the helper will compute values (but computing requires .git to be in the context).
+RUN chmod +x /app/scripts/docker-build-embed.sh && \
+    VERSION="${VERSION}" GIT_COMMIT="${GIT_COMMIT}" BUILD_TIME="${BUILD_TIME}" /app/scripts/docker-build-embed.sh
 
 # Runtime stage
 FROM alpine:latest

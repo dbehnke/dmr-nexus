@@ -556,4 +556,3 @@ func TestRouter_SetSubscriptionChecker(t *testing.T) {
 		t.Error("Subscription checker should have been called")
 	}
 }
-

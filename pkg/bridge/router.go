@@ -15,19 +15,24 @@ type Router struct {
 	bridges             map[string]*BridgeRuleSet
 	dynamicBridges      map[string]*DynamicBridge // key: "tgid:timeslot"
 	streamTracker       *StreamTracker
+	txLogger            *TransmissionLogger
 	subscriptionChecker PeerSubscriptionChecker
 	peerIDToSystemName  map[uint32]string // Maps peer IDs to system names
 	mu                  sync.RWMutex
 }
 
 // DynamicBridge represents an automatically created bridge for a talkgroup
+// Bridges are timeslot-agnostic - they track activity and subscribers across both timeslots
 type DynamicBridge struct {
-	TGID         uint32
-	Timeslot     int
-	CreatedAt    time.Time
-	LastActivity time.Time
-	Subscribers  map[uint32]bool // Peer IDs subscribed to this TG
-	mu           sync.RWMutex
+	TGID            uint32
+	CreatedAt       time.Time
+	LastActivity    time.Time       // Most recent activity on ANY timeslot
+	LastActivityTS1 time.Time       // Most recent activity on TS1 (for diagnostics)
+	LastActivityTS2 time.Time       // Most recent activity on TS2 (for diagnostics)
+	ActiveRadioID   uint32          // Radio ID currently transmitting (0 if none)
+	ActiveStreamID  uint32          // Active stream ID (0 if none)
+	Subscribers     map[uint32]bool // Peer IDs subscribed to this TG on ANY timeslot
+	mu              sync.RWMutex
 }
 
 // NewRouter creates a new router instance
@@ -45,6 +50,13 @@ func (r *Router) SetSubscriptionChecker(checker PeerSubscriptionChecker) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.subscriptionChecker = checker
+}
+
+// SetTransmissionLogger sets the transmission logger for the router
+func (r *Router) SetTransmissionLogger(logger *TransmissionLogger) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.txLogger = logger
 }
 
 // RegisterPeer registers a peer ID to system name mapping
@@ -78,8 +90,65 @@ func (r *Router) GetBridge(name string) *BridgeRuleSet {
 // RoutePacket routes a DMR packet based on bridge rules and peer subscriptions
 // Returns a list of target systems to forward the packet to
 func (r *Router) RoutePacket(packet *protocol.DMRDPacket, sourceSystem string) []string {
-	// Check if this is a terminator frame - end the stream after processing
+	// Log the transmission if logger is configured
+	if r.txLogger != nil {
+		isTerminator := packet.FrameType == protocol.FrameTypeVoiceTerminator
+		r.txLogger.LogPacket(
+			packet.StreamID,
+			packet.SourceID,
+			packet.DestinationID,
+			packet.RepeaterID,
+			packet.Timeslot,
+			isTerminator,
+		)
+	}
+
+	// Check if this is a terminator frame
 	isTerminator := packet.FrameType == protocol.FrameTypeVoiceTerminator
+	isVoiceHeader := packet.FrameType == protocol.FrameTypeVoiceHeader
+
+	// Update LastActivity on the dynamic bridge for this talkgroup
+	// This allows the UI to show the bridge as "active" (red) during transmissions
+	// Track both overall activity and per-timeslot activity
+	// Also enforce single-stream: reject new streams if one is already active
+	r.mu.RLock()
+	key := dynamicBridgeKey(packet.DestinationID)
+	bridge, bridgeExists := r.dynamicBridges[key]
+	r.mu.RUnlock()
+
+	if bridgeExists {
+		bridge.mu.Lock()
+
+		// SINGLE-STREAM ENFORCEMENT: Check if there's already an active stream for this talkgroup
+		if isVoiceHeader && bridge.ActiveStreamID != 0 && bridge.ActiveStreamID != packet.StreamID {
+			// Another stream is already active on this talkgroup - reject this one
+			bridge.mu.Unlock()
+			// Don't route this packet - another stream is already active
+			return []string{}
+		}
+
+		now := time.Now()
+		bridge.LastActivity = now
+		if packet.Timeslot == 1 {
+			bridge.LastActivityTS1 = now
+		} else {
+			bridge.LastActivityTS2 = now
+		}
+
+		// Track active transmission
+		if isVoiceHeader {
+			bridge.ActiveRadioID = packet.SourceID
+			bridge.ActiveStreamID = packet.StreamID
+		} else if isTerminator {
+			// Clear active transmission on terminator
+			bridge.ActiveRadioID = 0
+			bridge.ActiveStreamID = 0
+		}
+
+		bridge.mu.Unlock()
+	}
+
+	// End the stream after processing terminator
 	defer func() {
 		if isTerminator {
 			r.streamTracker.EndStream(packet.StreamID)
@@ -201,22 +270,27 @@ func (r *Router) CleanupStreams(maxAge time.Duration) {
 }
 
 // GetOrCreateDynamicBridge gets or creates a dynamic bridge for a talkgroup
-func (r *Router) GetOrCreateDynamicBridge(tgid uint32, timeslot int) *DynamicBridge {
+// Bridges are timeslot-agnostic - one bridge per talkgroup regardless of timeslot
+func (r *Router) GetOrCreateDynamicBridge(tgid uint32) *DynamicBridge {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	key := dynamicBridgeKey(tgid, timeslot)
+	key := dynamicBridgeKey(tgid)
 	if bridge, exists := r.dynamicBridges[key]; exists {
 		return bridge
 	}
 
 	// Create new dynamic bridge
+	now := time.Now()
 	bridge := &DynamicBridge{
-		TGID:         tgid,
-		Timeslot:     timeslot,
-		CreatedAt:    time.Now(),
-		LastActivity: time.Now(),
-		Subscribers:  make(map[uint32]bool),
+		TGID:            tgid,
+		CreatedAt:       now,
+		LastActivity:    now,
+		LastActivityTS1: time.Time{}, // Zero time until we see TS1 activity
+		LastActivityTS2: time.Time{}, // Zero time until we see TS2 activity
+		ActiveRadioID:   0,           // No active transmission
+		ActiveStreamID:  0,           // No active stream
+		Subscribers:     make(map[uint32]bool),
 	}
 	r.dynamicBridges[key] = bridge
 
@@ -224,8 +298,9 @@ func (r *Router) GetOrCreateDynamicBridge(tgid uint32, timeslot int) *DynamicBri
 }
 
 // AddSubscriberToDynamicBridge adds a peer to a dynamic bridge's subscriber list
-func (r *Router) AddSubscriberToDynamicBridge(tgid uint32, timeslot int, peerID uint32) {
-	bridge := r.GetOrCreateDynamicBridge(tgid, timeslot)
+// Bridges are timeslot-agnostic - subscribers are tracked regardless of which timeslot they use
+func (r *Router) AddSubscriberToDynamicBridge(tgid uint32, peerID uint32) {
+	bridge := r.GetOrCreateDynamicBridge(tgid)
 
 	bridge.mu.Lock()
 	bridge.Subscribers[peerID] = true
@@ -234,9 +309,9 @@ func (r *Router) AddSubscriberToDynamicBridge(tgid uint32, timeslot int, peerID 
 }
 
 // RemoveSubscriberFromDynamicBridge removes a peer from a dynamic bridge
-func (r *Router) RemoveSubscriberFromDynamicBridge(tgid uint32, timeslot int, peerID uint32) {
+func (r *Router) RemoveSubscriberFromDynamicBridge(tgid uint32, peerID uint32) {
 	r.mu.RLock()
-	key := dynamicBridgeKey(tgid, timeslot)
+	key := dynamicBridgeKey(tgid)
 	bridge, exists := r.dynamicBridges[key]
 	r.mu.RUnlock()
 
@@ -302,9 +377,9 @@ func (r *Router) CleanupInactiveDynamicBridges(maxInactive time.Duration, subscr
 }
 
 // GetDynamicBridgeSubscribers returns the peer IDs subscribed to a dynamic bridge
-func (r *Router) GetDynamicBridgeSubscribers(tgid uint32, timeslot int) []uint32 {
+func (r *Router) GetDynamicBridgeSubscribers(tgid uint32) []uint32 {
 	r.mu.RLock()
-	key := dynamicBridgeKey(tgid, timeslot)
+	key := dynamicBridgeKey(tgid)
 	bridge, exists := r.dynamicBridges[key]
 	r.mu.RUnlock()
 
@@ -333,11 +408,14 @@ func (r *Router) GetAllDynamicBridges() []*DynamicBridge {
 		// Create a copy to avoid race conditions
 		bridge.mu.RLock()
 		bridgeCopy := &DynamicBridge{
-			TGID:         bridge.TGID,
-			Timeslot:     bridge.Timeslot,
-			CreatedAt:    bridge.CreatedAt,
-			LastActivity: bridge.LastActivity,
-			Subscribers:  make(map[uint32]bool, len(bridge.Subscribers)),
+			TGID:            bridge.TGID,
+			CreatedAt:       bridge.CreatedAt,
+			LastActivity:    bridge.LastActivity,
+			LastActivityTS1: bridge.LastActivityTS1,
+			LastActivityTS2: bridge.LastActivityTS2,
+			ActiveRadioID:   bridge.ActiveRadioID,
+			ActiveStreamID:  bridge.ActiveStreamID,
+			Subscribers:     make(map[uint32]bool, len(bridge.Subscribers)),
 		}
 		for peerID := range bridge.Subscribers {
 			bridgeCopy.Subscribers[peerID] = true
@@ -351,13 +429,12 @@ func (r *Router) GetAllDynamicBridges() []*DynamicBridge {
 }
 
 // dynamicBridgeKey creates a unique key for a dynamic bridge
-func dynamicBridgeKey(tgid uint32, timeslot int) string {
+// Bridges are now timeslot-agnostic, so the key is just the talkgroup ID
+func dynamicBridgeKey(tgid uint32) string {
 	return string([]byte{
 		byte(tgid >> 24),
 		byte(tgid >> 16),
 		byte(tgid >> 8),
 		byte(tgid),
-		':',
-		byte(timeslot),
 	})
 }
