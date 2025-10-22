@@ -11,14 +11,22 @@ import (
 func TestNewDB(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_dmr_nexus.db"
-	defer func() { _ = os.Remove(dbPath) }()
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	if db.db == nil {
 		t.Error("Expected non-nil database connection")
@@ -27,14 +35,22 @@ func TestNewDB(t *testing.T) {
 
 func TestNewDB_DefaultPath(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
-	defer func() { _ = os.Remove("dmr-nexus.db") }()
+	defer func() {
+		if err := os.Remove("dmr-nexus.db"); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove default db file: %v", err)
+		}
+	}()
 
 	cfg := Config{}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database with default path: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	if db.db == nil {
 		t.Error("Expected non-nil database connection")
@@ -44,14 +60,22 @@ func TestNewDB_DefaultPath(t *testing.T) {
 func TestTransmission_BeforeCreate(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_transmission_create.db"
-	defer func() { _ = os.Remove(dbPath) }()
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	// Create transmission without timestamps
 	tx := &Transmission{
@@ -87,14 +111,22 @@ func TestTransmission_BeforeCreate(t *testing.T) {
 func TestTransmissionRepository_Create(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_repo_create.db"
-	defer func() { _ = os.Remove(dbPath) }()
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer func() { _ = db.Close() }()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := NewTransmissionRepository(db.GetDB())
 
@@ -124,14 +156,22 @@ func TestTransmissionRepository_Create(t *testing.T) {
 func TestTransmissionRepository_GetRecent(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_get_recent.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := NewTransmissionRepository(db.GetDB())
 
@@ -175,14 +215,22 @@ func TestTransmissionRepository_GetRecent(t *testing.T) {
 func TestTransmissionRepository_GetRecentPaginated(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_paginated.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := NewTransmissionRepository(db.GetDB())
 
@@ -237,14 +285,22 @@ func TestTransmissionRepository_GetRecentPaginated(t *testing.T) {
 func TestTransmissionRepository_GetByRadioID(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_by_radio.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := NewTransmissionRepository(db.GetDB())
 
@@ -305,14 +361,22 @@ func TestTransmissionRepository_GetByRadioID(t *testing.T) {
 func TestTransmissionRepository_GetByTalkgroup(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_by_tg.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := NewTransmissionRepository(db.GetDB())
 
@@ -373,14 +437,22 @@ func TestTransmissionRepository_GetByTalkgroup(t *testing.T) {
 func TestTransmissionRepository_DeleteOlderThan(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_delete_old.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("failed to remove db file %s: %v", dbPath, err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Fatalf("failed to close db: %v", err)
+		}
+	}()
 
 	repo := NewTransmissionRepository(db.GetDB())
 
