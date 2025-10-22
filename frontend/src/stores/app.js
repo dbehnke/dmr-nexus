@@ -4,6 +4,7 @@ import axios from 'axios'
 export const useAppStore = defineStore('app', {
   state: () => ({
     status: 'unknown',
+      version: 'dev',
     peers: [],
     bridges: [],
     dynamicBridges: [],
@@ -25,6 +26,7 @@ export const useAppStore = defineStore('app', {
     async fetchStatus() {
       const res = await axios.get('/api/status')
       this.status = res.data?.status || 'unknown'
+      this.version = res.data?.version || this.version
     },
     async fetchPeers() {
       const res = await axios.get('/api/peers')

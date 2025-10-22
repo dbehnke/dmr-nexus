@@ -25,7 +25,7 @@
     </main>
   
       <footer class="max-w-6xl mx-auto px-4 py-6 text-center text-sm text-gray-500 dark:text-gray-400">
-        <div>© 2025 DMR Nexus. v0.7.1-dirty</div>
+        <div>© 2025 DMR Nexus. {{ store.version }}</div>
         <div class="mt-1">Made with <span aria-hidden="true">❤️</span> in Macomb, MI</div>
       </footer>
   </div>
