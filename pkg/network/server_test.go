@@ -676,14 +676,22 @@ func TestServer_PrivateCallRouting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create peer1 connection: %v", err)
 	}
-	defer conn1.Close()
+	defer func() {
+		if err := conn1.Close(); err != nil {
+			t.Logf("conn1.Close error: %v", err)
+		}
+	}()
 
 	// Connect peer 2
 	conn2, err := net.DialUDP("udp", nil, serverAddr)
 	if err != nil {
 		t.Fatalf("Failed to create peer2 connection: %v", err)
 	}
-	defer conn2.Close()
+	defer func() {
+		if err := conn2.Close(); err != nil {
+			t.Logf("conn2.Close error: %v", err)
+		}
+	}()
 
 	// Perform full connection handshake for peer1
 	if err := connectPeer(conn1, peer1ID, "PEER1"); err != nil {
@@ -880,13 +888,21 @@ func TestServer_PrivateCallDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create peer1 connection: %v", err)
 	}
-	defer conn1.Close()
+	defer func() {
+		if err := conn1.Close(); err != nil {
+			t.Logf("conn1.Close error: %v", err)
+		}
+	}()
 
 	conn2, err := net.DialUDP("udp", nil, serverAddr)
 	if err != nil {
 		t.Fatalf("Failed to create peer2 connection: %v", err)
 	}
-	defer conn2.Close()
+	defer func() {
+		if err := conn2.Close(); err != nil {
+			t.Logf("conn2.Close error: %v", err)
+		}
+	}()
 
 	if err := connectPeer(conn1, peer1ID, "PEER1"); err != nil {
 		t.Fatalf("Failed to connect peer1: %v", err)
@@ -965,7 +981,11 @@ func TestServer_PrivateCallUnknownDestination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create peer1 connection: %v", err)
 	}
-	defer conn1.Close()
+	defer func() {
+		if err := conn1.Close(); err != nil {
+			t.Logf("conn1.Close error: %v", err)
+		}
+	}()
 
 	if err := connectPeer(conn1, peer1ID, "PEER1"); err != nil {
 		t.Fatalf("Failed to connect peer1: %v", err)
