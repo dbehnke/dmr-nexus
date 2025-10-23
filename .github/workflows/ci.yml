@@ -32,10 +32,14 @@ jobs:
         run: go version
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8.0.0
+        uses: golangci/golangci-lint-action@v8
         with:
           # The action will run the `run` subcommand; only pass flags here.
           args: --timeout=10m
+          # Skip version check to handle Go 1.25.3
+          skip-cache: true
+          # Use latest golangci-lint version
+          version: latest
 
       - name: Run tests
         run: make test
