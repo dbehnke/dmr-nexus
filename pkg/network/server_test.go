@@ -771,7 +771,7 @@ func TestServer_PrivateCallRouting(t *testing.T) {
 	if loc1.ID != peer1ID {
 		t.Fatalf("Radio1 location incorrect: expected peerID=%d, got=%d", peer1ID, loc1.ID)
 	}
-	
+
 	loc2, found2 := srv.lookupSubscriberLocation(radio2ID)
 	if !found2 {
 		t.Fatalf("Radio2 location not tracked: found=%v", found2)

@@ -21,14 +21,14 @@ type Config struct {
 
 // GlobalConfig holds global DMR configuration
 type GlobalConfig struct {
-	PingTime          int    `mapstructure:"ping_time"`           // Seconds between pings
-	MaxMissed         int    `mapstructure:"max_missed"`          // Max missed pings before timeout
-	UseACL            bool   `mapstructure:"use_acl"`             // Enable ACL processing
-	RegACL            string `mapstructure:"reg_acl"`             // Registration ACL
-	SubACL            string `mapstructure:"sub_acl"`             // Subscriber ACL
-	TG1ACL            string `mapstructure:"tg1_acl"`             // Talkgroup timeslot 1 ACL
-	TG2ACL            string `mapstructure:"tg2_acl"`             // Talkgroup timeslot 2 ACL
-	PrivateCallsEnabled bool `mapstructure:"private_calls_enabled"` // Enable private call routing
+	PingTime            int    `mapstructure:"ping_time"`             // Seconds between pings
+	MaxMissed           int    `mapstructure:"max_missed"`            // Max missed pings before timeout
+	UseACL              bool   `mapstructure:"use_acl"`               // Enable ACL processing
+	RegACL              string `mapstructure:"reg_acl"`               // Registration ACL
+	SubACL              string `mapstructure:"sub_acl"`               // Subscriber ACL
+	TG1ACL              string `mapstructure:"tg1_acl"`               // Talkgroup timeslot 1 ACL
+	TG2ACL              string `mapstructure:"tg2_acl"`               // Talkgroup timeslot 2 ACL
+	PrivateCallsEnabled bool   `mapstructure:"private_calls_enabled"` // Enable private call routing
 }
 
 // ServerConfig holds server identification
