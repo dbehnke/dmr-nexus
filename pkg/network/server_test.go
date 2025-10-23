@@ -601,6 +601,87 @@ func TestServer_HandleRPTPING_SendsMSTPONG(t *testing.T) {
 	}
 }
 
+func TestServer_HandleRPTPING_UnknownPeer_CooldownBehavior(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+
+	// Bind server UDP socket
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	// Use an unknown peer ID (not registered)
+	peerID := uint32(999999)
+
+	// Craft an RPTPING packet
+	ping := make([]byte, protocol.RPTPINGPacketSize)
+	copy(ping[0:7], protocol.PacketTypeRPTPING)
+	binary.BigEndian.PutUint32(ping[7:11], peerID)
+
+	// First RPTPING from unknown peer should get MSTCL
+	if err := senderConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	// Expect MSTCL back
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("sender ReadFromUDP error (first MSTCL): %v", err)
+	}
+	if n < protocol.MSTCLPacketSize {
+		t.Fatalf("MSTCL too small: %d", n)
+	}
+	if string(buf[0:5]) != protocol.PacketTypeMSTCL {
+		t.Fatalf("expected MSTCL, got %q", string(buf[0:n]))
+	}
+	gotID := binary.BigEndian.Uint32(buf[5:9])
+	if gotID != peerID {
+		t.Fatalf("MSTCL peer id mismatch: got %d want %d", gotID, peerID)
+	}
+
+	// Second RPTPING from same unknown peer should be silently ignored (no response)
+	if err := senderConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	// Should timeout (no response)
+	_, _, err = senderConn.ReadFromUDP(buf)
+	if err == nil {
+		t.Fatal("Expected timeout (no response), but got a response")
+	}
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Expected timeout error, got: %v", err)
+	}
+
+	// Third RPTPING should also be ignored
+	if err := senderConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	_, _, err = senderConn.ReadFromUDP(buf)
+	if err == nil {
+		t.Fatal("Expected timeout (no response), but got a response")
+	}
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Expected timeout error, got: %v", err)
+	}
+}
+
 func TestStreamMuteFirstTransmission_AAA(t *testing.T) {
 	// Arrange
 	cfg := config.SystemConfig{

@@ -15,6 +15,13 @@ import (
 	"github.com/dbehnke/dmr-nexus/pkg/protocol"
 )
 
+// rejectedPeer tracks a peer that was rejected with MSTCL
+type rejectedPeer struct {
+	peerID    uint32
+	addr      string
+	lastMSTCL time.Time
+}
+
 // Server represents a UDP server for MASTER mode
 type Server struct {
 	config          config.SystemConfig
@@ -39,6 +46,11 @@ type Server struct {
 	// Mute map: streamID -> expiry of mute (2s idle or until terminator)
 	mutedStreams   map[uint32]time.Time
 	mutedStreamsMu sync.Mutex
+
+	// Track rejected peers to avoid sending repeated MSTCL
+	rejectedPeers   map[string]*rejectedPeer // key: "peerID:addr"
+	rejectedPeersMu sync.Mutex
+	mstclCooldown   time.Duration
 }
 
 // CleanupMutedStreamsOnce runs a single cleanup pass for mutedStreams (for testing)
@@ -63,6 +75,8 @@ func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *
 		cleanupInterval: 10 * time.Second, // Default cleanup interval
 		started:         make(chan struct{}),
 		mutedStreams:    make(map[uint32]time.Time),
+		rejectedPeers:   make(map[string]*rejectedPeer),
+		mstclCooldown:   60 * time.Second, // Don't send repeated MSTCL for 60 seconds
 	}
 }
 
@@ -461,11 +475,36 @@ func (s *Server) handleRPTPING(data []byte, addr *net.UDPAddr) {
 	// Get peer
 	p := s.peerManager.GetPeer(peerID)
 	if p == nil {
-		// Unknown peer - send MSTCL to force disconnect
-		// This can happen if server restarts or client crashes
+		// Unknown peer - check if we recently sent MSTCL to this peer
+		peerKey := fmt.Sprintf("%d:%s", peerID, addr.String())
+
+		s.rejectedPeersMu.Lock()
+		rejected, exists := s.rejectedPeers[peerKey]
+		now := time.Now()
+
+		if exists && now.Sub(rejected.lastMSTCL) < s.mstclCooldown {
+			// Within cooldown period - silently ignore
+			s.rejectedPeersMu.Unlock()
+			s.log.Debug("Ignoring RPTPING from recently rejected peer (cooldown active)",
+				logger.Uint64("peer_id", uint64(peerID)),
+				logger.String("addr", addr.String()),
+				logger.String("cooldown_remaining", (s.mstclCooldown-now.Sub(rejected.lastMSTCL)).String()))
+			return
+		}
+
+		// Either first time seeing this peer, or cooldown expired - send MSTCL
 		s.log.Debug("Received RPTPING from unknown peer, sending MSTCL",
 			logger.Uint64("peer_id", uint64(peerID)),
 			logger.String("addr", addr.String()))
+
+		// Track this rejection
+		s.rejectedPeers[peerKey] = &rejectedPeer{
+			peerID:    peerID,
+			addr:      addr.String(),
+			lastMSTCL: now,
+		}
+		s.rejectedPeersMu.Unlock()
+
 		s.sendMSTCL(peerID, addr)
 		return
 	}
@@ -922,6 +961,24 @@ func (s *Server) cleanupLoop(ctx context.Context) error {
 				if now.After(expiry) {
 					delete(s.mutedStreams, streamID)
 				}
+			}
+
+			// Cleanup expired rejected peers (cooldown + grace period expired)
+			s.rejectedPeersMu.Lock()
+			expiredKeys := make([]string, 0)
+			cleanupThreshold := s.mstclCooldown + (5 * time.Minute) // Keep for cooldown + 5 minutes
+			for key, rejected := range s.rejectedPeers {
+				if now.Sub(rejected.lastMSTCL) > cleanupThreshold {
+					expiredKeys = append(expiredKeys, key)
+				}
+			}
+			for _, key := range expiredKeys {
+				delete(s.rejectedPeers, key)
+			}
+			s.rejectedPeersMu.Unlock()
+			if len(expiredKeys) > 0 {
+				s.log.Debug("Cleaned up expired rejected peers",
+					logger.Int("count", len(expiredKeys)))
 			}
 		}
 	}
