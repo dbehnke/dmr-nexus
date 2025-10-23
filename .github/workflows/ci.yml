@@ -36,10 +36,9 @@ jobs:
         with:
           # The action will run the `run` subcommand; only pass flags here.
           args: --timeout=10m
-          # Skip version check to handle Go 1.25.3
-          skip-cache: true
-          # Use latest golangci-lint version
-          version: latest
+          # Use latest golangci-lint version (v2.5.0 or newer for Go 1.25.3)
+          version: v2.5.0
+          install-mode: binary
 
       - name: Run tests
         run: make test

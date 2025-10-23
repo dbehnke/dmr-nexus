@@ -102,14 +102,22 @@ func TestDMRUser_Location(t *testing.T) {
 func TestDMRUserRepository_Upsert(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_dmr_user_upsert.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := NewDMRUserRepository(db.GetDB())
 
@@ -160,14 +168,22 @@ func TestDMRUserRepository_Upsert(t *testing.T) {
 func TestDMRUserRepository_GetByCallsign(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_dmr_user_callsign.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := NewDMRUserRepository(db.GetDB())
 
@@ -196,14 +212,22 @@ func TestDMRUserRepository_GetByCallsign(t *testing.T) {
 func TestDMRUserRepository_Count(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_dmr_user_count.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := NewDMRUserRepository(db.GetDB())
 
@@ -243,14 +267,22 @@ func TestDMRUserRepository_Count(t *testing.T) {
 func TestDMRUserRepository_UpsertBatch(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_dmr_user_batch.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := Config{Path: dbPath}
 	db, err := NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := NewDMRUserRepository(db.GetDB())
 
