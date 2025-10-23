@@ -81,7 +81,11 @@ func (s *Syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to download database: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			s.logger.Warn("Failed to close response body", logger.Error(err))
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)

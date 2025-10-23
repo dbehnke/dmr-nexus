@@ -13,14 +13,22 @@ import (
 func TestSyncer_parseCSV(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_radioid_syncer.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := database.Config{Path: dbPath}
 	db, err := database.NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := database.NewDMRUserRepository(db.GetDB())
 	syncer := NewSyncer(repo, log)
@@ -59,14 +67,22 @@ func TestSyncer_parseCSV(t *testing.T) {
 func TestSyncer_parseCSV_InvalidData(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_radioid_syncer_invalid.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := database.Config{Path: dbPath}
 	db, err := database.NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := database.NewDMRUserRepository(db.GetDB())
 	syncer := NewSyncer(repo, log)
@@ -93,20 +109,28 @@ short,line
 func TestNewSyncer(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_radioid_new_syncer.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := database.Config{Path: dbPath}
 	db, err := database.NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := database.NewDMRUserRepository(db.GetDB())
 	syncer := NewSyncer(repo, log)
 
 	if syncer == nil {
-		t.Error("Expected non-nil syncer")
+		t.Fatal("Expected non-nil syncer")
 	}
 	if syncer.repo == nil {
 		t.Error("Expected non-nil repo in syncer")
@@ -122,14 +146,22 @@ func TestNewSyncer(t *testing.T) {
 func TestSyncer_Start_Cancellation(t *testing.T) {
 	log := logger.New(logger.Config{Level: "error"})
 	dbPath := "/tmp/test_radioid_start.db"
-	defer os.Remove(dbPath)
+	defer func() {
+		if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
+			t.Logf("Failed to remove test database: %v", err)
+		}
+	}()
 
 	cfg := database.Config{Path: dbPath}
 	db, err := database.NewDB(cfg, log)
 	if err != nil {
 		t.Fatalf("Failed to create database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close database: %v", err)
+		}
+	}()
 
 	repo := database.NewDMRUserRepository(db.GetDB())
 	syncer := NewSyncer(repo, log)
