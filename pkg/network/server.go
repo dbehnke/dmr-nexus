@@ -15,11 +15,11 @@ import (
 	"github.com/dbehnke/dmr-nexus/pkg/protocol"
 )
 
-// rejectedPeer tracks a peer that was rejected with MSTCL
+// rejectedPeer tracks a peer that was rejected with MSTNAK
 type rejectedPeer struct {
-	peerID    uint32
-	addr      string
-	lastMSTCL time.Time
+	peerID     uint32
+	addr       string
+	lastMSTNAK time.Time
 }
 
 // Server represents a UDP server for MASTER mode
@@ -47,10 +47,10 @@ type Server struct {
 	mutedStreams   map[uint32]time.Time
 	mutedStreamsMu sync.Mutex
 
-	// Track rejected peers to avoid sending repeated MSTCL
+	// Track rejected peers to avoid sending repeated MSTNAK
 	rejectedPeers   map[string]*rejectedPeer // key: "peerID:addr"
 	rejectedPeersMu sync.Mutex
-	mstclCooldown   time.Duration
+	mstNakCooldown  time.Duration
 }
 
 // CleanupMutedStreamsOnce runs a single cleanup pass for mutedStreams (for testing)
@@ -76,7 +76,7 @@ func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *
 		started:         make(chan struct{}),
 		mutedStreams:    make(map[uint32]time.Time),
 		rejectedPeers:   make(map[string]*rejectedPeer),
-		mstclCooldown:   60 * time.Second, // Don't send repeated MSTCL for 60 seconds
+		mstNakCooldown:  60 * time.Second, // Don't send repeated MSTNAK for 60 seconds
 	}
 }
 
@@ -475,37 +475,37 @@ func (s *Server) handleRPTPING(data []byte, addr *net.UDPAddr) {
 	// Get peer
 	p := s.peerManager.GetPeer(peerID)
 	if p == nil {
-		// Unknown peer - check if we recently sent MSTCL to this peer
+		// Unknown peer - check if we recently sent MSTNAK to this peer
 		peerKey := fmt.Sprintf("%d:%s", peerID, addr.String())
 
 		s.rejectedPeersMu.Lock()
 		rejected, exists := s.rejectedPeers[peerKey]
 		now := time.Now()
 
-		if exists && now.Sub(rejected.lastMSTCL) < s.mstclCooldown {
+		if exists && now.Sub(rejected.lastMSTNAK) < s.mstNakCooldown {
 			// Within cooldown period - silently ignore
 			s.rejectedPeersMu.Unlock()
 			s.log.Debug("Ignoring RPTPING from recently rejected peer (cooldown active)",
 				logger.Uint64("peer_id", uint64(peerID)),
 				logger.String("addr", addr.String()),
-				logger.String("cooldown_remaining", (s.mstclCooldown-now.Sub(rejected.lastMSTCL)).String()))
+				logger.String("cooldown_remaining", (s.mstNakCooldown-now.Sub(rejected.lastMSTNAK)).String()))
 			return
 		}
 
-		// Either first time seeing this peer, or cooldown expired - send MSTCL
-		s.log.Debug("Received RPTPING from unknown peer, sending MSTCL",
+		// Either first time seeing this peer, or cooldown expired - send MSTNAK
+		s.log.Debug("Received RPTPING from unknown peer, sending MSTNAK",
 			logger.Uint64("peer_id", uint64(peerID)),
 			logger.String("addr", addr.String()))
 
 		// Track this rejection
 		s.rejectedPeers[peerKey] = &rejectedPeer{
-			peerID:    peerID,
-			addr:      addr.String(),
-			lastMSTCL: now,
+			peerID:     peerID,
+			addr:       addr.String(),
+			lastMSTNAK: now,
 		}
 		s.rejectedPeersMu.Unlock()
 
-		s.sendMSTCL(peerID, addr)
+		s.sendMSTNAK(peerID, addr)
 		return
 	}
 
@@ -902,8 +902,6 @@ func (s *Server) sendMSTPONG(peerID uint32, addr *net.UDPAddr) {
 }
 
 // sendMSTNAK sends a negative acknowledgement to an unknown peer
-//
-//nolint:unused
 func (s *Server) sendMSTNAK(peerID uint32, addr *net.UDPAddr) {
 	nak := make([]byte, protocol.MSTNAKPacketSize)
 	copy(nak[0:6], protocol.PacketTypeMSTNAK)
@@ -914,10 +912,6 @@ func (s *Server) sendMSTNAK(peerID uint32, addr *net.UDPAddr) {
 		s.log.Debug("Failed to send MSTNAK", logger.Error(err))
 	}
 }
-
-// Reference the method to avoid unusedfunc diagnostics in editors/tools that
-// warn about unused methods even when they are intentionally kept for future use.
-var _ = (*Server).sendMSTNAK
 
 // sendMSTCL sends a close/deny message to a peer
 func (s *Server) sendMSTCL(peerID uint32, addr *net.UDPAddr) {
@@ -966,9 +960,9 @@ func (s *Server) cleanupLoop(ctx context.Context) error {
 			// Cleanup expired rejected peers (cooldown + grace period expired)
 			s.rejectedPeersMu.Lock()
 			expiredKeys := make([]string, 0)
-			cleanupThreshold := s.mstclCooldown + (5 * time.Minute) // Keep for cooldown + 5 minutes
+			cleanupThreshold := s.mstNakCooldown + (5 * time.Minute) // Keep for cooldown + 5 minutes
 			for key, rejected := range s.rejectedPeers {
-				if now.Sub(rejected.lastMSTCL) > cleanupThreshold {
+				if now.Sub(rejected.lastMSTNAK) > cleanupThreshold {
 					expiredKeys = append(expiredKeys, key)
 				}
 			}

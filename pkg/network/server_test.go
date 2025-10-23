@@ -629,27 +629,27 @@ func TestServer_HandleRPTPING_UnknownPeer_CooldownBehavior(t *testing.T) {
 	copy(ping[0:7], protocol.PacketTypeRPTPING)
 	binary.BigEndian.PutUint32(ping[7:11], peerID)
 
-	// First RPTPING from unknown peer should get MSTCL
+	// First RPTPING from unknown peer should get MSTNAK
 	if err := senderConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 		t.Fatalf("SetReadDeadline error: %v", err)
 	}
 	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
 
-	// Expect MSTCL back
+	// Expect MSTNAK back
 	buf := make([]byte, 64)
 	n, _, err := senderConn.ReadFromUDP(buf)
 	if err != nil {
-		t.Fatalf("sender ReadFromUDP error (first MSTCL): %v", err)
+		t.Fatalf("sender ReadFromUDP error (first MSTNAK): %v", err)
 	}
-	if n < protocol.MSTCLPacketSize {
-		t.Fatalf("MSTCL too small: %d", n)
+	if n < protocol.MSTNAKPacketSize {
+		t.Fatalf("MSTNAK too small: %d", n)
 	}
-	if string(buf[0:5]) != protocol.PacketTypeMSTCL {
-		t.Fatalf("expected MSTCL, got %q", string(buf[0:n]))
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK, got %q", string(buf[0:n]))
 	}
-	gotID := binary.BigEndian.Uint32(buf[5:9])
+	gotID := binary.BigEndian.Uint32(buf[6:10])
 	if gotID != peerID {
-		t.Fatalf("MSTCL peer id mismatch: got %d want %d", gotID, peerID)
+		t.Fatalf("MSTNAK peer id mismatch: got %d want %d", gotID, peerID)
 	}
 
 	// Second RPTPING from same unknown peer should be silently ignored (no response)
@@ -687,7 +687,7 @@ func TestServer_HandleRPTPING_UnknownPeer_CooldownExpires(t *testing.T) {
 	log := logger.New(logger.Config{Level: "info"})
 	srv := NewServer(cfg, "test-system", log)
 	// Use a shorter cooldown for testing
-	srv.mstclCooldown = 100 * time.Millisecond
+	srv.mstNakCooldown = 100 * time.Millisecond
 
 	// Bind server UDP socket
 	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
@@ -711,7 +711,7 @@ func TestServer_HandleRPTPING_UnknownPeer_CooldownExpires(t *testing.T) {
 	copy(ping[0:7], protocol.PacketTypeRPTPING)
 	binary.BigEndian.PutUint32(ping[7:11], peerID)
 
-	// First RPTPING - should get MSTCL
+	// First RPTPING - should get MSTNAK
 	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
 		t.Fatalf("SetReadDeadline error: %v", err)
 	}
@@ -720,16 +720,16 @@ func TestServer_HandleRPTPING_UnknownPeer_CooldownExpires(t *testing.T) {
 	buf := make([]byte, 64)
 	n, _, err := senderConn.ReadFromUDP(buf)
 	if err != nil {
-		t.Fatalf("Expected MSTCL: %v", err)
+		t.Fatalf("Expected MSTNAK: %v", err)
 	}
-	if string(buf[0:5]) != protocol.PacketTypeMSTCL {
-		t.Fatalf("expected MSTCL, got %q", string(buf[0:n]))
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK, got %q", string(buf[0:n]))
 	}
 
 	// Wait for cooldown to expire
 	time.Sleep(150 * time.Millisecond)
 
-	// RPTPING after cooldown expires - should get MSTCL again
+	// RPTPING after cooldown expires - should get MSTNAK again
 	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
 		t.Fatalf("SetReadDeadline error: %v", err)
 	}
@@ -737,10 +737,10 @@ func TestServer_HandleRPTPING_UnknownPeer_CooldownExpires(t *testing.T) {
 
 	n, _, err = senderConn.ReadFromUDP(buf)
 	if err != nil {
-		t.Fatalf("Expected MSTCL after cooldown: %v", err)
+		t.Fatalf("Expected MSTNAK after cooldown: %v", err)
 	}
-	if string(buf[0:5]) != protocol.PacketTypeMSTCL {
-		t.Fatalf("expected MSTCL after cooldown, got %q", string(buf[0:n]))
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK after cooldown, got %q", string(buf[0:n]))
 	}
 }
 
