@@ -682,6 +682,68 @@ func TestServer_HandleRPTPING_UnknownPeer_CooldownBehavior(t *testing.T) {
 	}
 }
 
+func TestServer_HandleRPTPING_UnknownPeer_CooldownExpires(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+	// Use a shorter cooldown for testing
+	srv.mstclCooldown = 100 * time.Millisecond
+
+	// Bind server UDP socket
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	peerID := uint32(888888)
+
+	// Craft an RPTPING packet
+	ping := make([]byte, protocol.RPTPINGPacketSize)
+	copy(ping[0:7], protocol.PacketTypeRPTPING)
+	binary.BigEndian.PutUint32(ping[7:11], peerID)
+
+	// First RPTPING - should get MSTCL
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("Expected MSTCL: %v", err)
+	}
+	if string(buf[0:5]) != protocol.PacketTypeMSTCL {
+		t.Fatalf("expected MSTCL, got %q", string(buf[0:n]))
+	}
+
+	// Wait for cooldown to expire
+	time.Sleep(150 * time.Millisecond)
+
+	// RPTPING after cooldown expires - should get MSTCL again
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	n, _, err = senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("Expected MSTCL after cooldown: %v", err)
+	}
+	if string(buf[0:5]) != protocol.PacketTypeMSTCL {
+		t.Fatalf("expected MSTCL after cooldown, got %q", string(buf[0:n]))
+	}
+}
+
 func TestStreamMuteFirstTransmission_AAA(t *testing.T) {
 	// Arrange
 	cfg := config.SystemConfig{
