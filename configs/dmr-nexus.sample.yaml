@@ -6,6 +6,7 @@ global:
   ping_time: 5          # Seconds between pings
   max_missed: 3         # Max missed pings before timeout
   use_acl: true         # Enable global ACL processing
+  private_calls_enabled: false  # Enable private (unit-to-unit) call routing
 
   # Global ACLs (processed before system-level ACLs)
   reg_acl: "PERMIT:ALL"       # Peer registration ACL (MASTER only)
@@ -67,6 +68,7 @@ systems:
     repeat: true              # Repeat traffic to other peers
     max_peers: 50
     group_hangtime: 5         # Seconds
+    private_calls_enabled: false  # Enable private call routing (requires location tracking)
 
     # System-level ACLs
     use_acl: true

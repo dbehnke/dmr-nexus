@@ -573,6 +573,9 @@ func (s *Server) handleDMRD(data []byte, addr *net.UDPAddr) {
 
 	// Track subscriber location for private call routing
 	// Always update location on every DMRD packet to keep it fresh
+	s.log.Debug("Tracking subscriber location",
+		logger.Int("radio_id", int(dmrd.SourceID)),
+		logger.Int("peer_id", int(p.ID)))
 	s.trackSubscriberLocation(dmrd.SourceID, p.ID)
 
 	// Handle private calls if enabled
