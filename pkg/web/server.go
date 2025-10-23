@@ -134,6 +134,7 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/api/bridges", s.api.HandleBridges)
 	mux.HandleFunc("/api/activity", s.api.HandleActivity)
 	mux.HandleFunc("/api/transmissions", s.api.HandleTransmissions)
+	mux.HandleFunc("/api/user/", s.api.HandleUserLookup)
 
 	// WebSocket endpoint
 	mux.Handle("/ws", s.hub.Handler())

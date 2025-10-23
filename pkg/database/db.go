@@ -66,7 +66,7 @@ func NewDB(cfg Config, log *logger.Logger) (*DB, error) {
 	}
 
 	// Run migrations
-	if err := db.AutoMigrate(&Transmission{}); err != nil {
+	if err := db.AutoMigrate(&Transmission{}, &DMRUser{}); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
