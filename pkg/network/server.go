@@ -39,6 +39,16 @@ type Server struct {
 	// Mute map: streamID -> expiry of mute (2s idle or until terminator)
 	mutedStreams   map[uint32]time.Time
 	mutedStreamsMu sync.Mutex
+
+	// Subscriber location tracking for private calls: radioID -> subscriberLocation
+	subscriberLocations   map[uint32]*subscriberLocation
+	subscriberLocationsMu sync.RWMutex
+}
+
+// subscriberLocation tracks where a subscriber (radio) was last seen
+type subscriberLocation struct {
+	peerID   uint32    // Which peer the subscriber is behind
+	lastSeen time.Time // When we last saw traffic from this subscriber
 }
 
 // CleanupMutedStreamsOnce runs a single cleanup pass for mutedStreams (for testing)
@@ -55,14 +65,15 @@ func (s *Server) CleanupMutedStreamsOnce(now time.Time) {
 // NewServer creates a new UDP server for MASTER mode
 func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *Server {
 	return &Server{
-		config:          cfg,
-		systemName:      systemName,
-		log:             log.WithComponent("network.server"),
-		peerManager:     peer.NewPeerManager(),
-		pingTimeout:     30 * time.Second, // Default timeout
-		cleanupInterval: 10 * time.Second, // Default cleanup interval
-		started:         make(chan struct{}),
-		mutedStreams:    make(map[uint32]time.Time),
+		config:              cfg,
+		systemName:          systemName,
+		log:                 log.WithComponent("network.server"),
+		peerManager:         peer.NewPeerManager(),
+		pingTimeout:         30 * time.Second, // Default timeout
+		cleanupInterval:     10 * time.Second, // Default cleanup interval
+		started:             make(chan struct{}),
+		mutedStreams:        make(map[uint32]time.Time),
+		subscriberLocations: make(map[uint32]*subscriberLocation),
 	}
 }
 
@@ -494,6 +505,9 @@ func (s *Server) handleRPTCL(data []byte, addr *net.UDPAddr) {
 		logger.Uint64("peer_id", uint64(peerID)),
 		logger.String("addr", addr.String()))
 
+	// Clear subscriber locations for this peer
+	s.clearSubscriberLocationsForPeer(peerID)
+
 	// Remove peer
 	s.peerManager.RemovePeer(peerID)
 
@@ -515,6 +529,9 @@ func (s *Server) handleMSTCL(data []byte, addr *net.UDPAddr) {
 	s.log.Info("Peer disconnect",
 		logger.Int("peer_id", int(peerID)),
 		logger.String("addr", addr.String()))
+
+	// Clear subscriber locations for this peer
+	s.clearSubscriberLocationsForPeer(peerID)
 
 	// Remove peer
 	s.peerManager.RemovePeer(peerID)
@@ -554,7 +571,17 @@ func (s *Server) handleDMRD(data []byte, addr *net.UDPAddr) {
 		}
 	}
 
-	// Check TG ACL based on timeslot
+	// Track subscriber location for private call routing
+	// Always update location on every DMRD packet to keep it fresh
+	s.trackSubscriberLocation(dmrd.SourceID, p.ID)
+
+	// Handle private calls if enabled
+	if s.config.PrivateCallsEnabled && dmrd.CallType == protocol.CallTypePrivate {
+		s.handlePrivateCall(dmrd, data, p)
+		return
+	}
+
+	// Check TG ACL based on timeslot (for group calls only)
 	timeslot := dmrd.Timeslot
 	if s.config.UseACL {
 		if timeslot == 1 && s.tg1ACL != nil {
@@ -768,6 +795,54 @@ func (s *Server) findDynamicSubscribers(tgid uint32, timeslot uint8, sourcePeerI
 	return subscribers
 }
 
+// handlePrivateCall handles routing of private (unit-to-unit) calls
+func (s *Server) handlePrivateCall(dmrd *protocol.DMRDPacket, data []byte, sourcePeer *peer.Peer) {
+	s.log.Debug("Handling private call",
+		logger.Int("src", int(dmrd.SourceID)),
+		logger.Int("dst", int(dmrd.DestinationID)),
+		logger.Int("ts", dmrd.Timeslot),
+		logger.Int("source_peer", int(sourcePeer.ID)))
+
+	// Look up where the destination subscriber is located
+	targetPeer, found := s.lookupSubscriberLocation(dmrd.DestinationID)
+
+	if !found {
+		// Destination not found or stale
+		s.log.Debug("Private call destination not found",
+			logger.Int("dst", int(dmrd.DestinationID)),
+			logger.Int("src", int(dmrd.SourceID)))
+		return
+	}
+
+	// Don't send back to the source peer
+	if targetPeer.ID == sourcePeer.ID {
+		s.log.Debug("Private call destination is on same peer as source, not forwarding",
+			logger.Int("peer_id", int(targetPeer.ID)))
+		return
+	}
+
+	s.log.Info("Routing private call",
+		logger.Int("src", int(dmrd.SourceID)),
+		logger.Int("dst", int(dmrd.DestinationID)),
+		logger.Int("ts", dmrd.Timeslot),
+		logger.Int("source_peer", int(sourcePeer.ID)),
+		logger.Int("target_peer", int(targetPeer.ID)),
+		logger.String("target_callsign", targetPeer.Callsign))
+
+	// Forward the packet to the target peer
+	_, err := s.conn.WriteToUDP(data, targetPeer.Address)
+	if err != nil {
+		s.log.Error("Failed to forward private call",
+			logger.Int("target_peer", int(targetPeer.ID)),
+			logger.Error(err))
+		return
+	}
+
+	// Update stats
+	targetPeer.IncrementPacketsSent()
+	targetPeer.AddBytesSent(uint64(len(data)))
+}
+
 // countTalkgroupSubscribers counts how many peers are subscribed to a talkgroup (any timeslot)
 func (s *Server) countTalkgroupSubscribers(tgid uint32) int {
 	allPeers := s.peerManager.GetAllPeers()
@@ -923,6 +998,75 @@ func (s *Server) cleanupLoop(ctx context.Context) error {
 					delete(s.mutedStreams, streamID)
 				}
 			}
+
+			// Cleanup stale subscriber locations (not seen for 15 minutes)
+			s.cleanupStaleSubscriberLocations(15 * time.Minute)
+		}
+	}
+}
+
+// trackSubscriberLocation records where a subscriber (radio) was last seen
+func (s *Server) trackSubscriberLocation(radioID uint32, peerID uint32) {
+	s.subscriberLocationsMu.Lock()
+	defer s.subscriberLocationsMu.Unlock()
+
+	s.subscriberLocations[radioID] = &subscriberLocation{
+		peerID:   peerID,
+		lastSeen: time.Now(),
+	}
+}
+
+// lookupSubscriberLocation finds which peer a subscriber is behind
+// Returns the peer and true if found, or nil and false if not found or stale
+func (s *Server) lookupSubscriberLocation(radioID uint32) (*peer.Peer, bool) {
+	s.subscriberLocationsMu.RLock()
+	loc, exists := s.subscriberLocations[radioID]
+	s.subscriberLocationsMu.RUnlock()
+
+	if !exists {
+		return nil, false
+	}
+
+	// Check if location is still fresh (within 15 minutes)
+	if time.Since(loc.lastSeen) > 15*time.Minute {
+		return nil, false
+	}
+
+	// Look up the peer
+	p := s.peerManager.GetPeer(loc.peerID)
+	if p == nil {
+		return nil, false
+	}
+
+	// Only return connected peers
+	if p.GetState() != peer.StateConnected {
+		return nil, false
+	}
+
+	return p, true
+}
+
+// cleanupStaleSubscriberLocations removes subscriber locations not seen within the TTL
+func (s *Server) cleanupStaleSubscriberLocations(ttl time.Duration) {
+	s.subscriberLocationsMu.Lock()
+	defer s.subscriberLocationsMu.Unlock()
+
+	now := time.Now()
+	for radioID, loc := range s.subscriberLocations {
+		if now.Sub(loc.lastSeen) > ttl {
+			delete(s.subscriberLocations, radioID)
+		}
+	}
+}
+
+// clearSubscriberLocationsForPeer removes all subscriber locations associated with a peer
+func (s *Server) clearSubscriberLocationsForPeer(peerID uint32) {
+	s.subscriberLocationsMu.Lock()
+	defer s.subscriberLocationsMu.Unlock()
+
+	for radioID, loc := range s.subscriberLocations {
+		if loc.peerID == peerID {
+			delete(s.subscriberLocations, radioID)
 		}
 	}
 }
