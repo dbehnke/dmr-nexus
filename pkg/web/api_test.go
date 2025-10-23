@@ -14,6 +14,59 @@ import (
 	"github.com/dbehnke/dmr-nexus/pkg/peer"
 )
 
+func TestMaskIPAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "IPv4 with port",
+			input:    "162.1.2.3:8080",
+			expected: "162.1.*.*:8080",
+		},
+		{
+			name:     "IPv4 without port",
+			input:    "192.168.1.1",
+			expected: "192.168.*.*",
+		},
+		{
+			name:     "IPv4 with different octets",
+			input:    "67.220.71.98:36098",
+			expected: "67.220.*.*:36098",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "IPv6 with brackets and port",
+			input:    "[::1]:8080",
+			expected: "[::1]:8080",
+		},
+		{
+			name:     "IPv6 without brackets",
+			input:    "2001:db8::1",
+			expected: "2001:db8::1",
+		},
+		{
+			name:     "Invalid format",
+			input:    "not-an-ip",
+			expected: "not-an-ip",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := maskIPAddress(tt.input)
+			if result != tt.expected {
+				t.Errorf("maskIPAddress(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestDynamicBridgeSubscribers_AAA(t *testing.T) {
 	// Arrange
 	pm := peer.NewPeerManager()
@@ -196,5 +249,61 @@ func TestHandleTransmissions_MethodNotAllowed(t *testing.T) {
 
 	if w.Code != http.StatusMethodNotAllowed {
 		t.Errorf("Expected status 405, got %d", w.Code)
+	}
+}
+
+func TestHandlePeers_MaskedIPAddress(t *testing.T) {
+	log := logger.New(logger.Config{Level: "error"})
+	api := NewAPI(log)
+
+	// Create peer manager with test peers
+	pm := peer.NewPeerManager()
+	addr1 := &net.UDPAddr{IP: net.ParseIP("162.1.2.3"), Port: 8080}
+	addr2 := &net.UDPAddr{IP: net.ParseIP("67.220.71.98"), Port: 36098}
+
+	p1 := pm.AddPeer(320044901, addr1)
+	p1.SetConnected()
+	p1.Callsign = "WC8MI"
+	p1.Location = "Nowhere"
+
+	p2 := pm.AddPeer(123456789, addr2)
+	p2.SetConnected()
+	p2.Callsign = "TEST"
+
+	api.SetDeps(pm, nil)
+
+	// Make request
+	req := httptest.NewRequest("GET", "/api/peers", nil)
+	w := httptest.NewRecorder()
+
+	api.HandlePeers(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+
+	var peers []PeerDTO
+	if err := json.NewDecoder(w.Body).Decode(&peers); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if len(peers) != 2 {
+		t.Fatalf("Expected 2 peers, got %d", len(peers))
+	}
+
+	// Verify IP addresses are masked
+	for _, p := range peers {
+		if p.ID == 320044901 {
+			if p.Address != "162.1.*.*:8080" {
+				t.Errorf("Expected masked address '162.1.*.*:8080', got '%s'", p.Address)
+			}
+			if p.Callsign != "WC8MI" {
+				t.Errorf("Expected callsign 'WC8MI', got '%s'", p.Callsign)
+			}
+		} else if p.ID == 123456789 {
+			if p.Address != "67.220.*.*:36098" {
+				t.Errorf("Expected masked address '67.220.*.*:36098', got '%s'", p.Address)
+			}
+		}
 	}
 }
