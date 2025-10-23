@@ -6,6 +6,7 @@ const (
 	PacketTypeRPTL    = "RPTL"
 	PacketTypeRPTK    = "RPTK"
 	PacketTypeRPTC    = "RPTC"
+	PacketTypeRPTO    = "RPTO" // OPTIONS packet
 	PacketTypeRPTCL   = "RPTCL"
 	PacketTypeRPTACK  = "RPTACK"
 	PacketTypeRPTPING = "RPTPING"
