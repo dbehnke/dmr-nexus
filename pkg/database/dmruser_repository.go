@@ -33,7 +33,7 @@ func (r *DMRUserRepository) UpsertBatch(users []DMRUser, batchSize int) error {
 				end = len(users)
 			}
 			batch := users[i:end]
-			
+
 			// Use CreateInBatches with OnConflict to handle upserts efficiently
 			if err := tx.Save(&batch).Error; err != nil {
 				return err

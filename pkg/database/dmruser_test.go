@@ -9,9 +9,9 @@ import (
 
 func TestDMRUser_FullName(t *testing.T) {
 	tests := []struct {
-		name      string
-		user      DMRUser
-		expected  string
+		name     string
+		user     DMRUser
+		expected string
 	}{
 		{
 			name: "Both names present",

@@ -103,7 +103,7 @@ func (s *Syncer) Sync(ctx context.Context) error {
 
 	// Get final count
 	count, _ := s.repo.Count()
-	
+
 	duration := time.Since(start)
 	s.logger.Info("RadioID database sync complete",
 		logger.Int64("total_users", count),
@@ -116,7 +116,7 @@ func (s *Syncer) Sync(ctx context.Context) error {
 // Expected format: RADIO_ID,CALLSIGN,FIRST_NAME,LAST_NAME,CITY,STATE,COUNTRY,...
 func (s *Syncer) parseCSV(r io.Reader) ([]database.DMRUser, error) {
 	reader := csv.NewReader(bufio.NewReader(r))
-	
+
 	// Skip header row
 	if _, err := reader.Read(); err != nil {
 		return nil, fmt.Errorf("failed to read header: %w", err)
