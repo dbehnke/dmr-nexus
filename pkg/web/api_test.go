@@ -293,14 +293,15 @@ func TestHandlePeers_MaskedIPAddress(t *testing.T) {
 
 	// Verify IP addresses are masked
 	for _, p := range peers {
-		if p.ID == 320044901 {
+		switch p.ID {
+		case 320044901:
 			if p.Address != "162.1.*.*:8080" {
 				t.Errorf("Expected masked address '162.1.*.*:8080', got '%s'", p.Address)
 			}
 			if p.Callsign != "WC8MI" {
 				t.Errorf("Expected callsign 'WC8MI', got '%s'", p.Callsign)
 			}
-		} else if p.ID == 123456789 {
+		case 123456789:
 			if p.Address != "67.220.*.*:36098" {
 				t.Errorf("Expected masked address '67.220.*.*:36098', got '%s'", p.Address)
 			}
