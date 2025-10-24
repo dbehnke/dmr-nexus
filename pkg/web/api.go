@@ -15,10 +15,11 @@ import (
 
 // API handles REST API endpoints
 type API struct {
-	logger *logger.Logger
-	peers  *peer.PeerManager
-	router *bridge.Router
-	txRepo *database.TransmissionRepository
+	logger   *logger.Logger
+	peers    *peer.PeerManager
+	router   *bridge.Router
+	txRepo   *database.TransmissionRepository
+	userRepo *database.DMRUserRepository
 }
 
 // streamActivity tracks active transmission metadata
@@ -90,6 +91,11 @@ func (a *API) SetTransmissionRepo(repo *database.TransmissionRepository) {
 	a.txRepo = repo
 }
 
+// SetUserRepo sets the user repository
+func (a *API) SetUserRepo(repo *database.DMRUserRepository) {
+	a.userRepo = repo
+}
+
 // PeerDTO is a lightweight response for peer info
 type PeerDTO struct {
 	ID          uint32   `json:"id"`
@@ -135,6 +141,11 @@ type DynamicBridgeDTO struct {
 	Subscribers   []SubscriberInfo `json:"subscribers"`
 	Active        bool             `json:"active"`          // Whether someone is currently talking
 	ActiveRadioID uint32           `json:"active_radio_id"` // Radio ID currently transmitting (0 if none)
+	// User info for active radio (if available)
+	ActiveCallsign  string `json:"active_callsign,omitempty"`
+	ActiveFirstName string `json:"active_first_name,omitempty"`
+	ActiveLastName  string `json:"active_last_name,omitempty"`
+	ActiveLocation  string `json:"active_location,omitempty"`
 }
 
 // TransmissionDTO is a lightweight response for transmissions
@@ -148,6 +159,8 @@ type TransmissionDTO struct {
 	EndTime     int64   `json:"end_time"`
 	RepeaterID  uint32  `json:"repeater_id"`
 	PacketCount int     `json:"packet_count"`
+	// User info (if available)
+	Callsign string `json:"callsign,omitempty"`
 }
 
 // HandleStatus handles the /api/status endpoint
@@ -296,14 +309,26 @@ func (a *API) HandleBridges(w http.ResponseWriter, r *http.Request) {
 		// Check if this bridge is active (recent activity within 5 seconds)
 		active := time.Since(db.LastActivity) < 5*time.Second
 
-		dynamicBridges = append(dynamicBridges, DynamicBridgeDTO{
+		dto := DynamicBridgeDTO{
 			TGID:          db.TGID,
 			CreatedAt:     db.CreatedAt.Unix(),
 			LastActivity:  db.LastActivity.Unix(),
 			Subscribers:   subscribers,
 			Active:        active,
 			ActiveRadioID: db.ActiveRadioID,
-		})
+		}
+
+		// If active and we have a user repo, look up user info for active radio
+		if active && db.ActiveRadioID != 0 && a.userRepo != nil {
+			if user, err := a.userRepo.GetByRadioID(db.ActiveRadioID); err == nil {
+				dto.ActiveCallsign = user.Callsign
+				dto.ActiveFirstName = user.FirstName
+				dto.ActiveLastName = user.LastName
+				dto.ActiveLocation = user.Location()
+			}
+		}
+
+		dynamicBridges = append(dynamicBridges, dto)
 	}
 	response["dynamic"] = dynamicBridges
 
@@ -379,7 +404,7 @@ func (a *API) HandleTransmissions(w http.ResponseWriter, r *http.Request) {
 	// Convert to DTOs
 	dtos := make([]TransmissionDTO, 0, len(transmissions))
 	for _, tx := range transmissions {
-		dtos = append(dtos, TransmissionDTO{
+		dto := TransmissionDTO{
 			ID:          tx.ID,
 			RadioID:     tx.RadioID,
 			TalkgroupID: tx.TalkgroupID,
@@ -389,7 +414,16 @@ func (a *API) HandleTransmissions(w http.ResponseWriter, r *http.Request) {
 			EndTime:     tx.EndTime.Unix(),
 			RepeaterID:  tx.RepeaterID,
 			PacketCount: tx.PacketCount,
-		})
+		}
+
+		// Look up callsign if user repo is available
+		if a.userRepo != nil {
+			if user, err := a.userRepo.GetByRadioID(tx.RadioID); err == nil {
+				dto.Callsign = user.Callsign
+			}
+		}
+
+		dtos = append(dtos, dto)
 	}
 
 	response := map[string]interface{}{
@@ -402,5 +436,71 @@ func (a *API) HandleTransmissions(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		a.logger.Error("Failed to encode transmissions response", logger.Error(err))
+	}
+}
+
+// UserDTO is a lightweight response for user info
+type UserDTO struct {
+	RadioID   uint32 `json:"radio_id"`
+	Callsign  string `json:"callsign"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
+	City      string `json:"city"`
+	State     string `json:"state"`
+	Country   string `json:"country"`
+	Location  string `json:"location"`
+}
+
+// HandleUserLookup handles the /api/user/:radio_id endpoint
+func (a *API) HandleUserLookup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract radio ID from path
+	path := r.URL.Path
+	radioIDStr := path[len("/api/user/"):]
+	if radioIDStr == "" {
+		http.Error(w, "Radio ID required", http.StatusBadRequest)
+		return
+	}
+
+	radioID64, err := strconv.ParseUint(radioIDStr, 10, 32)
+	if err != nil {
+		http.Error(w, "Invalid radio ID", http.StatusBadRequest)
+		return
+	}
+	radioID := uint32(radioID64)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	// If no user repo, return 404
+	if a.userRepo == nil {
+		http.Error(w, "User lookup not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Look up user
+	user, err := a.userRepo.GetByRadioID(radioID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	dto := UserDTO{
+		RadioID:   user.RadioID,
+		Callsign:  user.Callsign,
+		FirstName: user.FirstName,
+		LastName:  user.LastName,
+		City:      user.City,
+		State:     user.State,
+		Country:   user.Country,
+		Location:  user.Location(),
+	}
+
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(dto); err != nil {
+		a.logger.Error("Failed to encode user response", logger.Error(err))
 	}
 }
