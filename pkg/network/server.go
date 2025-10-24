@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"net"
@@ -76,7 +77,7 @@ func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *
 		started:         make(chan struct{}),
 		mutedStreams:    make(map[uint32]time.Time),
 		rejectedPeers:   make(map[string]*rejectedPeer),
-		mstNakCooldown:  60 * time.Second, // Don't send repeated MSTNAK for 60 seconds
+		mstNakCooldown:  15 * time.Second, // Don't send repeated MSTNAK for 15 seconds (allows DMRGateway retry)
 	}
 }
 
@@ -334,8 +335,18 @@ func (s *Server) handleRPTL(data []byte, addr *net.UDPAddr) {
 	p.SetState(peer.StateRPTLReceived)
 	p.UpdateLastHeard()
 
-	// Send RPTACK
-	s.sendRPTACK(rptl.RepeaterID, addr)
+	// Generate salt for challenge-response authentication
+	salt := make([]byte, 4)
+	if _, err := rand.Read(salt); err != nil {
+		s.log.Error("Failed to generate salt", logger.Error(err))
+		return
+	}
+
+	// Store salt in peer for later verification
+	p.Salt = salt
+
+	// Send RPTACK with salt
+	s.sendRPTACKWithSalt(rptl.RepeaterID, salt, addr)
 }
 
 // handleRPTK handles key exchange from peers
@@ -353,7 +364,8 @@ func (s *Server) handleRPTK(data []byte, addr *net.UDPAddr) {
 	// Get peer
 	p := s.peerManager.GetPeer(rptk.RepeaterID)
 	if p == nil {
-		s.log.Warn("RPTK from unknown peer", logger.Int("peer_id", int(rptk.RepeaterID)))
+		s.log.Warn("RPTK from unknown peer, sending MSTNAK", logger.Int("peer_id", int(rptk.RepeaterID)))
+		s.sendMSTNAK(rptk.RepeaterID, addr)
 		return
 	}
 
@@ -382,7 +394,8 @@ func (s *Server) handleRPTC(data []byte, addr *net.UDPAddr) {
 	// Get peer
 	p := s.peerManager.GetPeer(rptc.RepeaterID)
 	if p == nil {
-		s.log.Warn("RPTC from unknown peer", logger.Int("peer_id", int(rptc.RepeaterID)))
+		s.log.Warn("RPTC from unknown peer, sending MSTNAK", logger.Int("peer_id", int(rptc.RepeaterID)))
+		s.sendMSTNAK(rptc.RepeaterID, addr)
 		return
 	}
 
@@ -419,7 +432,8 @@ func (s *Server) handleRPTO(data []byte, addr *net.UDPAddr) {
 	// Get peer
 	p := s.peerManager.GetPeer(peerID)
 	if p == nil {
-		s.log.Warn("RPTO from unknown peer", logger.Int("peer_id", int(peerID)))
+		s.log.Warn("RPTO from unknown peer, sending MSTNAK", logger.Int("peer_id", int(peerID)))
+		s.sendMSTNAK(peerID, addr)
 		return
 	}
 
@@ -872,7 +886,7 @@ func (s *Server) forwardDMRD(_ *protocol.DMRDPacket, data []byte, sourcePeerID u
 	}
 }
 
-// sendRPTACK sends an acknowledgement to a peer
+// sendRPTACK sends an acknowledgement to a peer (without salt)
 func (s *Server) sendRPTACK(peerID uint32, addr *net.UDPAddr) {
 	ack := &protocol.RPTACKPacket{
 		RepeaterID: peerID,
@@ -886,6 +900,24 @@ func (s *Server) sendRPTACK(peerID uint32, addr *net.UDPAddr) {
 	_, err = s.conn.WriteToUDP(data, addr)
 	if err != nil {
 		s.log.Error("Failed to send RPTACK", logger.Error(err))
+	}
+}
+
+// sendRPTACKWithSalt sends an acknowledgement with salt to a peer (used in response to RPTL)
+func (s *Server) sendRPTACKWithSalt(peerID uint32, salt []byte, addr *net.UDPAddr) {
+	ack := &protocol.RPTACKPacket{
+		RepeaterID: peerID,
+		Salt:       salt,
+	}
+	data, err := ack.Encode()
+	if err != nil {
+		s.log.Error("Failed to encode RPTACK with salt", logger.Error(err))
+		return
+	}
+
+	_, err = s.conn.WriteToUDP(data, addr)
+	if err != nil {
+		s.log.Error("Failed to send RPTACK with salt", logger.Error(err))
 	}
 }
 

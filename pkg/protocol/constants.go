@@ -24,7 +24,8 @@ const (
 	RPTKPacketSize           = 40  // Key exchange (RPTK + 4 byte repeater ID + 32 byte challenge)
 	RPTCPacketSize           = 302 // Configuration packet
 	RPTCLPacketSize          = 9   // Close from peer (RPTCL + 4 byte repeater ID)
-	RPTACKPacketSize         = 10  // Acknowledgement (RPTACK + 4 byte repeater ID)
+	RPTACKPacketSize         = 10  // Acknowledgement (RPTACK + 4 byte repeater ID) - without salt
+	RPTACKPacketSizeWithSalt = 14  // Acknowledgement with salt (RPTACK + 4 byte salt + 4 byte repeater ID)
 	RPTPINGPacketSize        = 11  // Ping from peer (RPTPING + 4 byte repeater ID)
 	MSTPONGPacketSize        = 11  // Pong from master (MSTPONG + 4 byte repeater ID)
 	MSTNAKPacketSize         = 10  // Negative acknowledgement (MSTNAK + 4 byte repeater ID)

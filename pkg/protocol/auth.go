@@ -158,24 +158,45 @@ func (p *RPTCPacket) Encode() ([]byte, error) {
 // RPTACKPacket represents an acknowledgement from master
 type RPTACKPacket struct {
 	RepeaterID uint32
+	Salt       []byte // Optional 4-byte salt (only sent in response to RPTL)
 }
 
 // Parse parses an RPTACK packet from raw bytes
 func (p *RPTACKPacket) Parse(data []byte) error {
-	if len(data) != RPTACKPacketSize {
-		return fmt.Errorf("invalid RPTACK packet size: %d (expected %d)", len(data), RPTACKPacketSize)
+	// RPTACK can be 10 bytes (no salt) or 14 bytes (with 4-byte salt)
+	if len(data) != RPTACKPacketSize && len(data) != RPTACKPacketSizeWithSalt {
+		return fmt.Errorf("invalid RPTACK packet size: %d (expected %d or %d)", len(data), RPTACKPacketSize, RPTACKPacketSizeWithSalt)
 	}
 
 	if string(data[0:6]) != PacketTypeRPTACK {
 		return fmt.Errorf("invalid RPTACK signature: %s", string(data[0:6]))
 	}
 
-	p.RepeaterID = binary.BigEndian.Uint32(data[6:10])
+	// If salt is present (14 bytes total), it comes after "RPTACK" signature
+	if len(data) == RPTACKPacketSizeWithSalt {
+		p.Salt = make([]byte, 4)
+		copy(p.Salt, data[6:10])
+		p.RepeaterID = binary.BigEndian.Uint32(data[10:14])
+	} else {
+		p.RepeaterID = binary.BigEndian.Uint32(data[6:10])
+	}
 	return nil
 }
 
 // Encode encodes the RPTACK packet to raw bytes
 func (p *RPTACKPacket) Encode() ([]byte, error) {
+	// If salt is provided, encode with salt (14 bytes), otherwise without (10 bytes)
+	if len(p.Salt) > 0 {
+		if len(p.Salt) != 4 {
+			return nil, fmt.Errorf("salt must be exactly 4 bytes, got %d", len(p.Salt))
+		}
+		data := make([]byte, RPTACKPacketSizeWithSalt)
+		copy(data[0:6], []byte(PacketTypeRPTACK))
+		copy(data[6:10], p.Salt)
+		binary.BigEndian.PutUint32(data[10:14], p.RepeaterID)
+		return data, nil
+	}
+
 	data := make([]byte, RPTACKPacketSize)
 	copy(data[0:6], []byte(PacketTypeRPTACK))
 	binary.BigEndian.PutUint32(data[6:10], p.RepeaterID)
