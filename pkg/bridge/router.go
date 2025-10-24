@@ -1,6 +1,7 @@
 package bridge
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -398,7 +399,7 @@ func (r *Router) GetDynamicBridgeSubscribers(tgid uint32) []uint32 {
 	return result
 }
 
-// GetAllDynamicBridges returns a snapshot of all dynamic bridges
+// GetAllDynamicBridges returns a snapshot of all dynamic bridges sorted by TGID
 func (r *Router) GetAllDynamicBridges() []*DynamicBridge {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -424,6 +425,11 @@ func (r *Router) GetAllDynamicBridges() []*DynamicBridge {
 
 		result = append(result, bridgeCopy)
 	}
+
+	// Sort by TGID to ensure consistent ordering
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].TGID < result[j].TGID
+	})
 
 	return result
 }

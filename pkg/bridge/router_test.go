@@ -556,3 +556,37 @@ func TestRouter_SetSubscriptionChecker(t *testing.T) {
 		t.Error("Subscription checker should have been called")
 	}
 }
+
+func TestRouter_GetAllDynamicBridges_Sorted(t *testing.T) {
+	router := NewRouter()
+
+	// Create dynamic bridges in random order
+	tgids := []uint32{9999, 1000, 5555, 2222, 7777}
+	for _, tgid := range tgids {
+		router.GetOrCreateDynamicBridge(tgid)
+	}
+
+	// Get all dynamic bridges
+	bridges := router.GetAllDynamicBridges()
+
+	// Verify they are sorted by TGID
+	if len(bridges) != len(tgids) {
+		t.Fatalf("Expected %d bridges, got %d", len(tgids), len(bridges))
+	}
+
+	for i := 1; i < len(bridges); i++ {
+		if bridges[i-1].TGID >= bridges[i].TGID {
+			t.Errorf("Bridges not sorted: TGID %d at index %d should come before TGID %d at index %d",
+				bridges[i-1].TGID, i-1, bridges[i].TGID, i)
+		}
+	}
+
+	// Verify the expected order: 1000, 2222, 5555, 7777, 9999
+	expectedOrder := []uint32{1000, 2222, 5555, 7777, 9999}
+	for i, expectedTGID := range expectedOrder {
+		if bridges[i].TGID != expectedTGID {
+			t.Errorf("Expected TGID %d at index %d, got %d", expectedTGID, i, bridges[i].TGID)
+		}
+	}
+}
+

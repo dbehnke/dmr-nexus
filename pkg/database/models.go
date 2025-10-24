@@ -39,3 +39,56 @@ func (t *Transmission) BeforeCreate(tx *gorm.DB) error {
 	}
 	return nil
 }
+
+// DMRUser represents a DMR user from the RadioID database
+type DMRUser struct {
+	RadioID   uint32    `gorm:"primarykey;not null" json:"radio_id"`
+	Callsign  string    `gorm:"index;size:20" json:"callsign"`
+	FirstName string    `gorm:"size:50" json:"first_name"`
+	LastName  string    `gorm:"size:50" json:"last_name"`
+	City      string    `gorm:"size:50" json:"city"`
+	State     string    `gorm:"size:50" json:"state"`
+	Country   string    `gorm:"size:50" json:"country"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// TableName specifies the table name for DMRUser
+func (DMRUser) TableName() string {
+	return "dmr_users"
+}
+
+// FullName returns the full name of the user
+func (u *DMRUser) FullName() string {
+	if u.FirstName != "" && u.LastName != "" {
+		return u.FirstName + " " + u.LastName
+	}
+	if u.FirstName != "" {
+		return u.FirstName
+	}
+	if u.LastName != "" {
+		return u.LastName
+	}
+	return ""
+}
+
+// Location returns the formatted location string
+func (u *DMRUser) Location() string {
+	parts := make([]string, 0, 3)
+	if u.City != "" {
+		parts = append(parts, u.City)
+	}
+	if u.State != "" {
+		parts = append(parts, u.State)
+	}
+	if u.Country != "" {
+		parts = append(parts, u.Country)
+	}
+	result := ""
+	for i, part := range parts {
+		if i > 0 {
+			result += ", "
+		}
+		result += part
+	}
+	return result
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/dbehnke/dmr-nexus/pkg/mqtt"
 	"github.com/dbehnke/dmr-nexus/pkg/network"
 	"github.com/dbehnke/dmr-nexus/pkg/peer"
+	"github.com/dbehnke/dmr-nexus/pkg/radioid"
 	"github.com/dbehnke/dmr-nexus/pkg/web"
 )
 
@@ -109,7 +110,17 @@ func main() {
 	}()
 
 	txRepo := database.NewTransmissionRepository(db.GetDB())
+	userRepo := database.NewDMRUserRepository(db.GetDB())
 	log.Info("Database initialized")
+
+	// Start RadioID syncer
+	radioIDSyncer := radioid.NewSyncer(userRepo, log.WithComponent("radioid"))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		radioIDSyncer.Start(ctx)
+	}()
+	log.Info("RadioID syncer started")
 
 	// Start Prometheus metrics server if enabled
 	if cfg.Metrics.Enabled && cfg.Metrics.Prometheus.Enabled {
@@ -194,8 +205,9 @@ func main() {
 			WithPeerManager(peerManager).
 			WithRouter(router)
 
-		// Set transmission repository for API
+		// Set transmission repository and user repository for API
 		webServer.GetAPI().SetTransmissionRepo(txRepo)
+		webServer.GetAPI().SetUserRepo(userRepo)
 
 		wg.Add(1)
 		go func() {
