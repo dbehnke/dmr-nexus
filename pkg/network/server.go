@@ -67,6 +67,12 @@ func (s *Server) CleanupMutedStreamsOnce(now time.Time) {
 
 // NewServer creates a new UDP server for MASTER mode
 func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *Server {
+	// Determine MSTNAK cooldown: per-system config if provided, otherwise use 15s default
+	cooldown := 15 * time.Second
+	if cfg.MstNakCooldown > 0 {
+		cooldown = time.Duration(cfg.MstNakCooldown) * time.Second
+	}
+
 	return &Server{
 		config:          cfg,
 		systemName:      systemName,
@@ -77,8 +83,13 @@ func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *
 		started:         make(chan struct{}),
 		mutedStreams:    make(map[uint32]time.Time),
 		rejectedPeers:   make(map[string]*rejectedPeer),
-		mstNakCooldown:  15 * time.Second, // Don't send repeated MSTNAK for 15 seconds (allows DMRGateway retry)
+		mstNakCooldown:  cooldown,
 	}
+}
+
+// peerKey builds the map key used for rejectedPeers tracking in the form "<peerID>:<addr>".
+func peerKey(peerID uint32, addr *net.UDPAddr) string {
+	return fmt.Sprintf("%d:%s", peerID, addr.String())
 }
 
 // WithPeerManager injects a shared peer manager (instead of using the internal one)
@@ -489,35 +500,19 @@ func (s *Server) handleRPTPING(data []byte, addr *net.UDPAddr) {
 	// Get peer
 	p := s.peerManager.GetPeer(peerID)
 	if p == nil {
-		// Unknown peer - check if we recently sent MSTNAK to this peer
-		peerKey := fmt.Sprintf("%d:%s", peerID, addr.String())
-
-		s.rejectedPeersMu.Lock()
-		rejected, exists := s.rejectedPeers[peerKey]
-		now := time.Now()
-
-		if exists && now.Sub(rejected.lastMSTNAK) < s.mstNakCooldown {
-			// Within cooldown period - silently ignore
-			s.rejectedPeersMu.Unlock()
+		// Unknown peer - check cooldown and record rejection if appropriate
+		send, remaining := s.shouldRejectAndRecord(peerID, addr)
+		if !send {
 			s.log.Debug("Ignoring RPTPING from recently rejected peer (cooldown active)",
 				logger.Uint64("peer_id", uint64(peerID)),
 				logger.String("addr", addr.String()),
-				logger.String("cooldown_remaining", (s.mstNakCooldown-now.Sub(rejected.lastMSTNAK)).String()))
+				logger.String("cooldown_remaining", remaining.String()))
 			return
 		}
 
-		// Either first time seeing this peer, or cooldown expired - send MSTNAK
 		s.log.Debug("Received RPTPING from unknown peer, sending MSTNAK",
 			logger.Uint64("peer_id", uint64(peerID)),
 			logger.String("addr", addr.String()))
-
-		// Track this rejection
-		s.rejectedPeers[peerKey] = &rejectedPeer{
-			peerID:     peerID,
-			addr:       addr.String(),
-			lastMSTNAK: now,
-		}
-		s.rejectedPeersMu.Unlock()
 
 		s.sendMSTNAK(peerID, addr)
 		return
@@ -586,10 +581,52 @@ func (s *Server) handleDMRD(data []byte, addr *net.UDPAddr) {
 		return
 	}
 
-	// Get peer
+	// Get peer by address
 	p := s.peerManager.GetPeerByAddress(addr)
+
+	// If we don't know this peer, or the peer isn't fully connected, send MSTNAK
+	var peerID uint32
 	if p == nil {
-		s.log.Debug("DMRD from unknown peer", logger.String("addr", addr.String()))
+		// Use repeater ID from packet if available
+		peerID = dmrd.RepeaterID
+
+		// Unknown peer - use helper to check cooldown and record rejection
+		send, remaining := s.shouldRejectAndRecord(peerID, addr)
+		if !send {
+			s.log.Debug("Ignoring DMRD from recently rejected unknown peer (cooldown active)",
+				logger.Uint64("peer_id", uint64(peerID)),
+				logger.String("addr", addr.String()),
+				logger.String("cooldown_remaining", remaining.String()))
+			return
+		}
+
+		s.log.Debug("Received DMRD from unknown peer, sending MSTNAK",
+			logger.Uint64("peer_id", uint64(peerID)),
+			logger.String("addr", addr.String()))
+
+		s.sendMSTNAK(peerID, addr)
+		return
+	}
+
+	// Peer exists but is not fully connected -> send MSTNAK (once per cooldown)
+	if p.GetState() != peer.StateConnected {
+		peerID = p.ID
+
+		send, remaining := s.shouldRejectAndRecord(peerID, addr)
+		if !send {
+			s.log.Debug("Ignoring DMRD from recently rejected non-connected peer (cooldown active)",
+				logger.Int("peer_id", int(peerID)),
+				logger.String("addr", addr.String()),
+				logger.String("cooldown_remaining", remaining.String()))
+			return
+		}
+
+		s.log.Warn("Ignoring DMRD from non-connected peer and sending MSTNAK",
+			logger.Int("peer_id", int(peerID)),
+			logger.String("addr", addr.String()),
+			logger.String("state", p.GetState().String()))
+
+		s.sendMSTNAK(peerID, addr)
 		return
 	}
 
@@ -955,6 +992,34 @@ func (s *Server) sendMSTCL(peerID uint32, addr *net.UDPAddr) {
 	if err != nil {
 		s.log.Debug("Failed to send MSTCL", logger.Error(err))
 	}
+}
+
+// shouldRejectAndRecord checks whether we should send an MSTNAK to the given
+// peer/address based on recent rejections (cooldown). If this returns true,
+// the caller SHOULD send an MSTNAK; if false is returned the caller SHOULD
+// silently ignore the packet. When true is returned the rejection timestamp
+// is recorded so repeated MSTNAK are suppressed for s.mstNakCooldown.
+func (s *Server) shouldRejectAndRecord(peerID uint32, addr *net.UDPAddr) (bool, time.Duration) {
+	peerKey := peerKey(peerID, addr)
+
+	s.rejectedPeersMu.Lock()
+	defer s.rejectedPeersMu.Unlock()
+
+	now := time.Now()
+	if rejected, exists := s.rejectedPeers[peerKey]; exists {
+		if now.Sub(rejected.lastMSTNAK) < s.mstNakCooldown {
+			// still in cooldown - report remaining time
+			return false, s.mstNakCooldown - now.Sub(rejected.lastMSTNAK)
+		}
+	}
+
+	// record this rejection now
+	s.rejectedPeers[peerKey] = &rejectedPeer{
+		peerID:     peerID,
+		addr:       addr.String(),
+		lastMSTNAK: now,
+	}
+	return true, 0
 }
 
 // cleanupLoop periodically cleans up timed out peers
