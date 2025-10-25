@@ -246,11 +246,3 @@ func (rb *ringBuffer) getData() (uint, []byte) {
 func (rb *ringBuffer) isEmpty() bool {
 	return rb.head == rb.tail
 }
-
-func (rb *ringBuffer) clear() {
-	rb.mu.Lock()
-	defer rb.mu.Unlock()
-
-	rb.head = 0
-	rb.tail = 0
-}

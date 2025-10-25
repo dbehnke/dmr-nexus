@@ -436,7 +436,7 @@ func (b *Bridge) sendDMRVoice(voiceData []byte) error {
 
 	// Calculate voice sequence (0-5 repeating, with special handling for sync)
 	voiceSeq := byte((b.dmrSeqNum - 1) % 6)
-	dataType := byte(0x00) // Voice Sync/Voice
+	var dataType byte
 	if voiceSeq == 0 {
 		dataType = 0x00 // Voice Sync
 	} else {
