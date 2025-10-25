@@ -144,7 +144,17 @@ func (b *Bridge) ysfToDMRLoop(ctx context.Context) {
 				continue
 			}
 
+			// Check frame length
 			if len(data) != ysf.YSFFrameLength {
+				// Silently ignore poll/keepalive frames (14 bytes: YSFP/YSFU + callsign)
+				if len(data) == 14 && len(data) >= 4 {
+					tag := string(data[0:4])
+					if tag == "YSFP" || tag == "YSFU" {
+						// Poll acknowledgment or unlink, ignore silently
+						continue
+					}
+				}
+				// Log unexpected frame lengths
 				b.logger.Warn("Invalid YSF frame length",
 					logger.Int("length", len(data)))
 				continue
