@@ -64,6 +64,9 @@ systems:
     ip: "0.0.0.0"
     port: 62031
     passphrase: "changeme"
+    # Cooldown (seconds) between MSTNAK replies to the same peer:addr
+    # Set to 0 to disable MSTNAK rate limiting (not recommended)
+    mst_nak_cooldown: 15
     repeat: true              # Repeat traffic to other peers
     max_peers: 50
     group_hangtime: 5         # Seconds
@@ -102,6 +105,8 @@ systems:
     software_id: "DMR-Nexus"
     package_id: "DMR-Nexus"
     group_hangtime: 5
+  # Cooldown between MSTNAK replies (seconds)
+  mst_nak_cooldown: 15
 
     # System-level ACLs
     use_acl: true
@@ -120,6 +125,8 @@ systems:
     network_id: 3129999       # Your network ID
     passphrase: "password"
     both_slots: false         # true = allow TS2 for unit calls
+  # Cooldown between MSTNAK replies (seconds)
+  mst_nak_cooldown: 15
 
     # System-level ACLs (single ACL for OpenBridge)
     use_acl: true

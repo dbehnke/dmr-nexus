@@ -104,8 +104,12 @@ func TestClient_Connect(t *testing.T) {
 		t.Errorf("Expected repeater ID 312000, got %d", packet.RepeaterID)
 	}
 
-	// Send RPTACK response
-	ackPacket := &protocol.RPTACKPacket{RepeaterID: 312000}
+	// Send RPTACK response with salt
+	salt := []byte{0x01, 0x02, 0x03, 0x04}
+	ackPacket := &protocol.RPTACKPacket{
+		RepeaterID: 312000,
+		Salt:       salt,
+	}
 	ackData, _ := ackPacket.Encode()
 	if _, err := serverConn.WriteToUDP(ackData, clientAddr); err != nil {
 		t.Fatalf("WriteToUDP error: %v", err)
@@ -205,16 +209,19 @@ func TestClient_SendDMRD(t *testing.T) {
 	// Helper to handle auth sequence
 	go func() {
 		buffer := make([]byte, 1024)
+		salt := []byte{0x01, 0x02, 0x03, 0x04}
+		ackPacketWithSalt := &protocol.RPTACKPacket{RepeaterID: 312000, Salt: salt}
+		ackDataWithSalt, _ := ackPacketWithSalt.Encode()
 		ackPacket := &protocol.RPTACKPacket{RepeaterID: 312000}
 		ackData, _ := ackPacket.Encode()
 
-		// Handle RPTL
+		// Handle RPTL - send RPTACK with salt
 		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 			t.Logf("SetReadDeadline error: %v", err)
 			return
 		}
 		if _, addr, err := serverConn.ReadFromUDP(buffer); err == nil && string(buffer[0:4]) == "RPTL" {
-			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+			if _, err := serverConn.WriteToUDP(ackDataWithSalt, addr); err != nil {
 				t.Logf("WriteToUDP error: %v", err)
 				return
 			}
@@ -352,18 +359,21 @@ func TestClient_ReceiveDMRD(t *testing.T) {
 	clientAddrCh := make(chan *net.UDPAddr, 1)
 	go func() {
 		buffer := make([]byte, 1024)
+		salt := []byte{0x01, 0x02, 0x03, 0x04}
+		ackPacketWithSalt := &protocol.RPTACKPacket{RepeaterID: 312000, Salt: salt}
+		ackDataWithSalt, _ := ackPacketWithSalt.Encode()
 		ackPacket := &protocol.RPTACKPacket{RepeaterID: 312000}
 		ackData, _ := ackPacket.Encode()
 		var finalAddr *net.UDPAddr
 
-		// Handle RPTL
+		// Handle RPTL - send RPTACK with salt
 		if err := serverConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
 			t.Logf("SetReadDeadline error: %v", err)
 			return
 		}
 		if _, addr, err := serverConn.ReadFromUDP(buffer); err == nil && string(buffer[0:4]) == "RPTL" {
 			finalAddr = addr
-			if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+			if _, err := serverConn.WriteToUDP(ackDataWithSalt, addr); err != nil {
 				t.Logf("WriteToUDP error: %v", err)
 				return
 			}
@@ -485,6 +495,9 @@ func TestClient_Race(t *testing.T) {
 	// Mock server handles authentication handshake
 	go func() {
 		buffer := make([]byte, 1024)
+		salt := []byte{0x01, 0x02, 0x03, 0x04}
+		ackPacketWithSalt := &protocol.RPTACKPacket{RepeaterID: 312000, Salt: salt}
+		ackDataWithSalt, _ := ackPacketWithSalt.Encode()
 		ackPacket := &protocol.RPTACKPacket{RepeaterID: 312000}
 		ackData, _ := ackPacket.Encode()
 		for step := 0; step < 3; step++ {
@@ -497,10 +510,18 @@ func TestClient_Race(t *testing.T) {
 				t.Logf("ReadFromUDP error: %v", err)
 				return
 			}
-			if n >= 4 && (string(buffer[0:4]) == "RPTL" || string(buffer[0:4]) == "RPTK" || string(buffer[0:4]) == "RPTC") {
-				if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
-					t.Logf("WriteToUDP error: %v", err)
-					return
+			if n >= 4 {
+				// Send RPTACK with salt for RPTL, without salt for RPTK and RPTC
+				if string(buffer[0:4]) == "RPTL" {
+					if _, err := serverConn.WriteToUDP(ackDataWithSalt, addr); err != nil {
+						t.Logf("WriteToUDP error: %v", err)
+						return
+					}
+				} else if string(buffer[0:4]) == "RPTK" || string(buffer[0:4]) == "RPTC" {
+					if _, err := serverConn.WriteToUDP(ackData, addr); err != nil {
+						t.Logf("WriteToUDP error: %v", err)
+						return
+					}
 				}
 			}
 		}

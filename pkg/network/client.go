@@ -134,9 +134,25 @@ func (c *Client) authenticate() error {
 		return fmt.Errorf("failed to receive RPTACK: %w", err)
 	}
 
-	// Parse RPTACK
-	if n >= protocol.RPTACKPacketSize && string(buffer[0:6]) == protocol.PacketTypeRPTACK {
-		c.log.Info("Received RPTACK")
+	// Parse RPTACK and extract salt
+	if n >= protocol.RPTACKPacketSizeWithSalt && string(buffer[0:6]) == protocol.PacketTypeRPTACK {
+		c.log.Info("Received RPTACK with salt")
+
+		// Extract salt from RPTACK (bytes 6-10)
+		c.salt = make([]byte, 4)
+		copy(c.salt, buffer[6:10])
+
+		c.setState(StateAuthenticated)
+	} else if n >= protocol.RPTACKPacketSize && string(buffer[0:6]) == protocol.PacketTypeRPTACK {
+		// Handle legacy RPTACK without salt (for backward compatibility)
+		c.log.Warn("Received RPTACK without salt - legacy server detected")
+
+		// Generate our own salt for legacy servers
+		c.salt = make([]byte, protocol.SaltLength)
+		for i := range c.salt {
+			c.salt[i] = byte(time.Now().UnixNano() % 256)
+		}
+
 		c.setState(StateAuthenticated)
 	} else {
 		return fmt.Errorf("unexpected response to RPTL: %s", string(buffer[0:n]))
@@ -145,13 +161,8 @@ func (c *Client) authenticate() error {
 	// Step 2: Send RPTK (key exchange)
 	c.log.Info("Sending RPTK (key exchange)")
 
-	// Generate salt for challenge
-	c.salt = make([]byte, protocol.SaltLength)
-	for i := range c.salt {
-		c.salt[i] = byte(time.Now().UnixNano() % 256)
-	}
-
 	// Create challenge: SHA256(salt + passphrase)
+	// Salt is now from the server (or self-generated for legacy servers)
 	h := sha256.New()
 	h.Write(c.salt)
 	h.Write([]byte(c.config.Passphrase))
