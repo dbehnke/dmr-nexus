@@ -5,72 +5,188 @@ import (
 )
 
 // FICH encoding/decoding based on YSFFICH.cpp from MMDVM_CM
+// Uses Golay(24,12), Viterbi convolution, and CRC-CCITT
 
-// Golay(20,8) encoding table for FICH
-var golay20_8Table = []uint32{
-	0x00000, 0x08659, 0x10CB2, 0x18AEB, 0x21964, 0x29F3D, 0x31536, 0x3996F,
-	0x42DB9, 0x4ABCE, 0x52105, 0x5A77C, 0x63C93, 0x6BAFA, 0x73251, 0x7B408,
-	0x85EB3, 0x8D8EA, 0x95241, 0x9D618, 0xB48F7, 0xBCEAE, 0xA4405, 0xAC25C,
-	0xC736A, 0xCF533, 0xD7F98, 0xDF9C1, 0xE674E, 0xEE117, 0xF6DBC, 0xFEBE5,
-	0x00000, 0x0847B, 0x108F6, 0x18C8D, 0x21387, 0x297FC, 0x31B71, 0x39F0A,
-	0x42738, 0x4A343, 0x52FCE, 0x5ABB5, 0x6341F, 0x6B064, 0x73CE9, 0x7B892,
+const (
+	ysfSyncLengthBytes = 5
+)
+
+// Interleave table for FICH bits
+var interleaveTable = []uint{
+	0, 40, 80, 120, 160,
+	2, 42, 82, 122, 162,
+	4, 44, 84, 124, 164,
+	6, 46, 86, 126, 166,
+	8, 48, 88, 128, 168,
+	10, 50, 90, 130, 170,
+	12, 52, 92, 132, 172,
+	14, 54, 94, 134, 174,
+	16, 56, 96, 136, 176,
+	18, 58, 98, 138, 178,
+	20, 60, 100, 140, 180,
+	22, 62, 102, 142, 182,
+	24, 64, 104, 144, 184,
+	26, 66, 106, 146, 186,
+	28, 68, 108, 148, 188,
+	30, 70, 110, 150, 190,
+	32, 72, 112, 152, 192,
+	34, 74, 114, 154, 194,
+	36, 76, 116, 156, 196,
+	38, 78, 118, 158, 198,
 }
 
-// EncodeFICH encodes FICH data into the payload
+// Encode encodes FICH data into the payload
 func (f *YSFFICH) Encode(payload []byte) error {
-	if len(payload) < 48 {
+	if len(payload) < ysfSyncLengthBytes+25 {
 		return fmt.Errorf("payload too short for FICH encoding: %d", len(payload))
 	}
 
-	// Build FICH data byte
-	var fich uint32 = 0
+	// Skip sync bytes
+	bytes := payload[ysfSyncLengthBytes:]
 
-	// Bits 0-1: Frame Information (FI)
-	fich |= uint32(f.FI & 0x03)
+	// Create 6-byte FICH data
+	fich := make([]byte, 6)
+	fich[0] = ((f.FI & 0x03) << 6) | ((f.CS & 0x03) << 4) | ((f.CM & 0x03) << 2) | (f.BN & 0x03)
+	fich[1] = ((f.BT & 0x03) << 6) | ((f.FN & 0x07) << 3) | (f.FT & 0x07)
+	fich[2] = ((f.MR & 0x03) << 3) | ((f.VoIP & 0x01) << 2) | (f.DT & 0x03)
+	if f.Dev != 0 {
+		fich[2] |= 0x40
+	}
+	fich[3] = f.SQ & 0x7F
+	if f.SQL != 0 {
+		fich[3] |= 0x80
+	}
 
-	// Bits 2-3: Communication Type / Channel ID (CS)
-	fich |= uint32(f.CS&0x03) << 2
+	// Add CRC
+	AddCCITT162(fich)
 
-	// Bits 4-5: Call Mode (CM)
-	fich |= uint32(f.CM&0x03) << 4
+	// Encode with Golay(24,12)
+	b0 := ((uint32(fich[0]) << 4) & 0xFF0) | ((uint32(fich[1]) >> 4) & 0x00F)
+	b1 := ((uint32(fich[1]) << 8) & 0xF00) | ((uint32(fich[2]) >> 0) & 0x0FF)
+	b2 := ((uint32(fich[3]) << 4) & 0xFF0) | ((uint32(fich[4]) >> 4) & 0x00F)
+	b3 := ((uint32(fich[4]) << 8) & 0xF00) | ((uint32(fich[5]) >> 0) & 0x0FF)
 
-	// Bit 6: Block Number (BN)
-	fich |= uint32(f.BN&0x01) << 6
+	c0 := Encode24128(b0)
+	c1 := Encode24128(b1)
+	c2 := Encode24128(b2)
+	c3 := Encode24128(b3)
 
-	// Bit 7: Block Type (BT)
-	fich |= uint32(f.BT&0x01) << 7
+	// Pack into byte array for convolution
+	conv := make([]byte, 13)
+	conv[0] = byte((c0 >> 16) & 0xFF)
+	conv[1] = byte((c0 >> 8) & 0xFF)
+	conv[2] = byte((c0 >> 0) & 0xFF)
+	conv[3] = byte((c1 >> 16) & 0xFF)
+	conv[4] = byte((c1 >> 8) & 0xFF)
+	conv[5] = byte((c1 >> 0) & 0xFF)
+	conv[6] = byte((c2 >> 16) & 0xFF)
+	conv[7] = byte((c2 >> 8) & 0xFF)
+	conv[8] = byte((c2 >> 0) & 0xFF)
+	conv[9] = byte((c3 >> 16) & 0xFF)
+	conv[10] = byte((c3 >> 8) & 0xFF)
+	conv[11] = byte((c3 >> 0) & 0xFF)
+	conv[12] = 0x00
 
-	// Apply Golay(20,8) encoding
-	encoded := golay20_8Encode(uint8(fich))
+	// Convolutional encoding
+	convolved := make([]byte, 25)
+	convolution := NewYSFConvolution()
+	convolution.Encode(conv, convolved, 100)
 
-	// Write encoded FICH into payload (bits 40-59 of the sync+fich area)
-	// The FICH is interleaved across the frame
-	writeFICHBits(payload, encoded)
+	// Interleave and write to payload
+	j := uint(0)
+	for i := uint(0); i < 100; i++ {
+		n := interleaveTable[i]
+
+		s0 := readBit(convolved, j)
+		j++
+		s1 := readBit(convolved, j)
+		j++
+
+		writeBit(bytes, n, s0)
+		writeBit(bytes, n+1, s1)
+	}
 
 	return nil
 }
 
 // Decode decodes FICH data from the payload
 func (f *YSFFICH) Decode(payload []byte) (bool, error) {
-	if len(payload) < 48 {
+	if len(payload) < ysfSyncLengthBytes+25 {
 		return false, fmt.Errorf("payload too short for FICH decoding: %d", len(payload))
 	}
 
-	// Extract FICH bits from payload
-	encoded := readFICHBits(payload)
+	// Skip sync bytes
+	bytes := payload[ysfSyncLengthBytes:]
 
-	// Decode Golay(20,8)
-	decoded, valid := golay20_8Decode(encoded)
-	if !valid {
+	// Initialize Viterbi decoder
+	viterbi := NewYSFConvolution()
+	viterbi.Start()
+
+	// Deinterleave and feed to Viterbi
+	for i := uint(0); i < 100; i++ {
+		n := interleaveTable[i]
+		var s0, s1 uint8
+
+		if readBit(bytes, n) {
+			s0 = 1
+		}
+		if readBit(bytes, n+1) {
+			s1 = 1
+		}
+
+		viterbi.Decode(s0, s1)
+	}
+
+	// Chainback to get decoded bits
+	output := make([]byte, 13)
+	viterbi.Chainback(output, 96)
+
+	// Decode Golay(24,12) codes
+	b0 := Decode24128(output[0:3])
+	b1 := Decode24128(output[3:6])
+	b2 := Decode24128(output[6:9])
+	b3 := Decode24128(output[9:12])
+
+	// Reconstruct FICH bytes
+	fich := make([]byte, 6)
+	fich[0] = byte((b0 >> 4) & 0xFF)
+	fich[1] = byte(((b0 << 4) & 0xF0) | ((b1 >> 8) & 0x0F))
+	fich[2] = byte((b1 >> 0) & 0xFF)
+	fich[3] = byte((b2 >> 4) & 0xFF)
+	fich[4] = byte(((b2 << 4) & 0xF0) | ((b3 >> 8) & 0x0F))
+	fich[5] = byte((b3 >> 0) & 0xFF)
+
+	// Check CRC
+	if !CheckCCITT162(fich) {
 		return false, nil
 	}
 
 	// Parse FICH fields
-	f.FI = decoded & 0x03
-	f.CS = (decoded >> 2) & 0x03
-	f.CM = (decoded >> 4) & 0x03
-	f.BN = (decoded >> 6) & 0x01
-	f.BT = (decoded >> 7) & 0x01
+	f.FI = (fich[0] >> 6) & 0x03
+	f.CS = (fich[0] >> 4) & 0x03
+	f.CM = (fich[0] >> 2) & 0x03
+	f.BN = fich[0] & 0x03
+	f.BT = (fich[1] >> 6) & 0x03
+	f.FN = (fich[1] >> 3) & 0x07
+	f.FT = fich[1] & 0x07
+	f.DT = fich[2] & 0x03
+	f.MR = (fich[2] >> 3) & 0x03
+	if fich[2]&0x40 != 0 {
+		f.Dev = 1
+	} else {
+		f.Dev = 0
+	}
+	if fich[2]&0x04 != 0 {
+		f.VoIP = 1
+	} else {
+		f.VoIP = 0
+	}
+	if fich[3]&0x80 != 0 {
+		f.SQL = 1
+	} else {
+		f.SQL = 0
+	}
+	f.SQ = fich[3] & 0x7F
 
 	return true, nil
 }
@@ -158,68 +274,4 @@ func (f *YSFFICH) GetFN() byte {
 // GetFT gets the Frame Total field
 func (f *YSFFICH) GetFT() byte {
 	return f.FT
-}
-
-// golay20_8Encode encodes 8 data bits into 20-bit Golay code
-func golay20_8Encode(data uint8) uint32 {
-	if int(data) < len(golay20_8Table) {
-		return golay20_8Table[data]
-	}
-	return 0
-}
-
-// golay20_8Decode decodes 20-bit Golay code into 8 data bits
-func golay20_8Decode(code uint32) (uint8, bool) {
-	// Simple syndrome-based decoding
-	// Try to find matching codeword
-	minDist := 32
-	var bestMatch uint8 = 0
-
-	for i := 0; i < 256; i++ {
-		encoded := golay20_8Encode(uint8(i))
-		dist := hammingDistance(code, encoded)
-		if dist < minDist {
-			minDist = dist
-			bestMatch = uint8(i)
-		}
-		if dist == 0 {
-			break
-		}
-	}
-
-	// Golay(20,8) can correct up to 3 errors
-	valid := minDist <= 3
-	return bestMatch, valid
-}
-
-// hammingDistance calculates Hamming distance between two 20-bit values
-func hammingDistance(a, b uint32) int {
-	xor := (a ^ b) & 0xFFFFF // Mask to 20 bits
-	count := 0
-	for xor != 0 {
-		count += int(xor & 1)
-		xor >>= 1
-	}
-	return count
-}
-
-// writeFICHBits writes FICH bits into the payload
-// FICH is interleaved across specific bit positions
-func writeFICHBits(payload []byte, fich uint32) {
-	// Simplified bit interleaving - actual implementation would follow
-	// the YSF specification for FICH bit positions
-	// For now, write to a known location
-	payload[4] = byte((fich >> 12) & 0xFF)
-	payload[5] = byte((fich >> 4) & 0xFF)
-	payload[6] = byte((fich & 0x0F) << 4)
-}
-
-// readFICHBits reads FICH bits from the payload
-func readFICHBits(payload []byte) uint32 {
-	// Simplified bit de-interleaving
-	var fich uint32
-	fich = uint32(payload[4]) << 12
-	fich |= uint32(payload[5]) << 4
-	fich |= uint32(payload[6]) >> 4
-	return fich & 0xFFFFF // Mask to 20 bits
 }
