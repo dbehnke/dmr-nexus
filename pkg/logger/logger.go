@@ -147,6 +147,21 @@ func Bool(key string, val bool) Field {
 	return Field{Key: key, Value: val}
 }
 
+// Uint creates a uint field
+func Uint(key string, val uint) Field {
+	return Field{Key: key, Value: val}
+}
+
+// Uint32 creates a uint32 field
+func Uint32(key string, val uint32) Field {
+	return Field{Key: key, Value: val}
+}
+
+// Float64 creates a float64 field
+func Float64(key string, val float64) Field {
+	return Field{Key: key, Value: val}
+}
+
 // Error creates an error field
 func Error(err error) Field {
 	if err == nil {

@@ -1,0 +1,82 @@
+# YSF2DMR Bridge Configuration
+# This bridges YSF (System Fusion) networks to DMR networks
+
+# YSF Network Configuration
+ysf:
+  # Your callsign as it will appear on YSF
+  callsign: "N0CALL"
+
+  # Suffix for YSF identification (typically "ND" for no direction, or "RPT" for repeater)
+  suffix: "ND"
+
+  # YSF reflector/server to connect to
+  server_address: "ysf.example.com"
+  server_port: 42000
+
+  # Hang time in milliseconds - how long to keep the stream active after last voice frame
+  hang_time: 1000
+
+  # Enable debug logging for YSF protocol
+  debug: false
+
+# DMR Network Configuration
+dmr:
+  # Your DMR ID (required)
+  id: 1234567
+
+  # Your callsign for DMR
+  callsign: "N0CALL"
+
+  # Startup talkgroup to connect to
+  startup_tg: 9990
+
+  # false = TalkGroup call, true = Private call
+  startup_private: false
+
+  # DMR server to connect to
+  server_address: "dmr.example.com"
+  server_port: 62031
+
+  # DMR server password
+  password: "PASSWORD"
+
+  # DMR color code (typically 1)
+  color_code: 1
+
+  # Radio configuration (required for DMR PEER mode)
+  rx_freq: 435000000  # RX frequency in Hz
+  tx_freq: 435000000  # TX frequency in Hz
+  tx_power: 1         # TX power in watts
+
+  # Location information
+  latitude: 0.0
+  longitude: 0.0
+  height: 0           # Height in meters
+  location: "Unknown"
+  description: "YSF2DMR Bridge"
+  url: ""
+
+  # Jitter buffer in milliseconds
+  jitter: 500
+
+  # Enable debug logging for DMR protocol
+  debug: false
+
+# DMR ID Database Configuration
+dmrid:
+  # Path to the SQLite database (shared with dmr-nexus)
+  database_path: "data/dmr-nexus.db"
+
+  # Enable automatic syncing from radioid.net
+  sync_enabled: true
+
+  # How often to sync (duration: 24h, 12h, etc.)
+  sync_interval: "24h"
+
+# Logging Configuration
+logging:
+  # Log level: debug, info, warn, error
+  level: "info"
+
+  # Log format: text, json
+  format: "text"
