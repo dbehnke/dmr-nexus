@@ -589,4 +589,3 @@ func TestRouter_GetAllDynamicBridges_Sorted(t *testing.T) {
 		}
 	}
 }
-

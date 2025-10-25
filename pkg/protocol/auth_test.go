@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
@@ -235,6 +236,93 @@ func TestRPTACKPacket_Encode(t *testing.T) {
 
 	if !bytes.Equal(data[0:6], []byte("RPTACK")) {
 		t.Error("Invalid signature in encoded packet")
+	}
+}
+
+func TestRPTACKPacket_EncodeWithSalt(t *testing.T) {
+	salt := []byte{0x01, 0x02, 0x03, 0x04}
+	packet := &RPTACKPacket{
+		RepeaterID: 312000,
+		Salt:       salt,
+	}
+
+	data, err := packet.Encode()
+	if err != nil {
+		t.Fatalf("Failed to encode RPTACK packet with salt: %v", err)
+	}
+
+	if len(data) != RPTACKPacketSizeWithSalt {
+		t.Errorf("Expected size %d, got %d", RPTACKPacketSizeWithSalt, len(data))
+	}
+
+	if !bytes.Equal(data[0:6], []byte("RPTACK")) {
+		t.Error("Invalid signature in encoded packet")
+	}
+
+	if !bytes.Equal(data[6:10], salt) {
+		t.Errorf("Expected salt %v, got %v", salt, data[6:10])
+	}
+
+	repeaterID := binary.BigEndian.Uint32(data[10:14])
+	if repeaterID != 312000 {
+		t.Errorf("Expected repeater ID 312000, got %d", repeaterID)
+	}
+}
+
+func TestRPTACKPacket_ParseWithSalt(t *testing.T) {
+	data := make([]byte, RPTACKPacketSizeWithSalt)
+	copy(data[0:6], []byte("RPTACK"))
+	// Salt
+	data[6] = 0x01
+	data[7] = 0x02
+	data[8] = 0x03
+	data[9] = 0x04
+	// Repeater ID
+	data[10] = 0x00
+	data[11] = 0x04
+	data[12] = 0xC2
+	data[13] = 0xC0
+
+	packet := &RPTACKPacket{}
+	err := packet.Parse(data)
+	if err != nil {
+		t.Fatalf("Failed to parse RPTACK packet with salt: %v", err)
+	}
+
+	if packet.RepeaterID != 312000 {
+		t.Errorf("Expected repeater ID 312000, got %d", packet.RepeaterID)
+	}
+
+	expectedSalt := []byte{0x01, 0x02, 0x03, 0x04}
+	if !bytes.Equal(packet.Salt, expectedSalt) {
+		t.Errorf("Expected salt %v, got %v", expectedSalt, packet.Salt)
+	}
+}
+
+func TestRPTACKPacket_RoundTripWithSalt(t *testing.T) {
+	salt := []byte{0xAA, 0xBB, 0xCC, 0xDD}
+	original := &RPTACKPacket{
+		RepeaterID: 312000,
+		Salt:       salt,
+	}
+
+	data, err := original.Encode()
+	if err != nil {
+		t.Fatalf("Failed to encode: %v", err)
+	}
+
+	parsed := &RPTACKPacket{}
+	err = parsed.Parse(data)
+	if err != nil {
+		t.Fatalf("Failed to parse: %v", err)
+	}
+
+	if parsed.RepeaterID != original.RepeaterID {
+		t.Errorf("RepeaterID mismatch: expected %d, got %d", original.RepeaterID, parsed.RepeaterID)
+	}
+
+	if !bytes.Equal(parsed.Salt, original.Salt) {
+		t.Errorf("Salt mismatch: expected %v, got %v", original.Salt, parsed.Salt)
 	}
 }
 
