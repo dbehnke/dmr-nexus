@@ -132,33 +132,44 @@ Standalone executable:
    - [x] Configuration loader with validation
    - [x] DMR ID lookup using database
    - [x] Main bridge orchestration
-   - [x] YSF→DMR processing loop
+   - [x] YSF→DMR processing loop with codec conversion
+   - [x] DMR→YSF processing loop with codec conversion
+   - [x] Bidirectional audio flow complete
 
-4. **Command-Line Utility** (`cmd/ysf2dmr/`)
+4. **DMR Client Integration** ✨ NEW
+   - [x] Integrated dmr-nexus PEER mode client
+   - [x] DMR packet transmission (headers, voice, terminators)
+   - [x] DMR packet reception handler
+   - [x] Stream ID management and sequence numbering
+   - [x] YSF→DMR voice bridging with timing synchronization
+   - [x] DMR→YSF voice bridging with timing synchronization
+
+5. **Command-Line Utility** (`cmd/ysf2dmr/`)
    - [x] Main application entry point
    - [x] Example configuration file
    - [x] Comprehensive README
 
-5. **Infrastructure Updates**
+6. **Infrastructure Updates**
    - [x] Added FLCO type to protocol package
    - [x] Added logger field functions (Uint32, Float64, Uint)
 
 ### 🚧 Pending
 
-1. **DMR Client Integration**
-   - [ ] Integrate existing dmr-nexus PEER mode client
-   - [ ] DMR→YSF processing loop
-   - [ ] Complete bidirectional audio flow
-
-2. **Testing**
-   - [ ] Integration tests with real servers
+1. **Testing**
+   - [ ] Integration tests with real YSF reflector
+   - [ ] Integration tests with real DMR server
    - [ ] Codec conversion tests
-   - [ ] End-to-end bridge tests
+   - [ ] End-to-end bridge tests with actual voice traffic
 
-3. **Documentation**
+2. **Documentation**
    - [ ] Add to main dmr-nexus README
    - [ ] Architecture diagrams
    - [ ] Troubleshooting guide
+
+3. **Optimization**
+   - [ ] Fine-tune timing for frame synchronization
+   - [ ] Optimize codec conversion buffering
+   - [ ] Add metrics for monitoring
 
 ### 🔮 Future Enhancements
 

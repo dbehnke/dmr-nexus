@@ -3,10 +3,12 @@ package ysf2dmr
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/dbehnke/dmr-nexus/pkg/codec"
+	"github.com/dbehnke/dmr-nexus/pkg/config"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
 	"github.com/dbehnke/dmr-nexus/pkg/network"
 	"github.com/dbehnke/dmr-nexus/pkg/protocol"
@@ -22,13 +24,20 @@ type Bridge struct {
 	lookup    *Lookup
 	logger    *logger.Logger
 
-	// State
-	currentSrcID uint32
-	currentDstID uint32
-	currentFlco  protocol.FLCO
-	streamActive bool
-	ysfFrames    uint
-	dmrFrames    uint
+	// State for YSF -> DMR
+	currentSrcID   uint32
+	currentDstID   uint32
+	currentFlco    protocol.FLCO
+	streamActive   bool
+	ysfFrames      uint
+	dmrSeqNum      byte
+	dmrStreamID    uint32
+
+	// State for DMR -> YSF
+	dmrRxActive    bool
+	dmrFrames      uint
+	dmrRxSrcID     uint32
+	dmrRxDstID     uint32
 
 	// Sync
 	mu sync.RWMutex
@@ -66,9 +75,45 @@ func (b *Bridge) Start(ctx context.Context) error {
 		logger.String("callsign", b.config.YSF.Callsign))
 
 	// Initialize DMR client (PEER mode)
-	// TODO: This needs to be implemented similar to dmr-nexus client mode
-	// For now, this is a placeholder
-	b.logger.Info("DMR client initialization pending implementation")
+	dmrSysCfg := config.SystemConfig{
+		Mode:       "PEER",
+		Enabled:    true,
+		IP:         "0.0.0.0",
+		Port:       0, // Let system assign port
+		Passphrase: b.config.DMR.Password,
+		MasterIP:   b.config.DMR.ServerAddress,
+		MasterPort: b.config.DMR.ServerPort,
+		Callsign:   b.config.DMR.Callsign,
+		RadioID:    int(b.config.DMR.ID),
+		RXFreq:     int(b.config.DMR.RXFreq),
+		TXFreq:     int(b.config.DMR.TXFreq),
+		TXPower:    b.config.DMR.TXPower,
+		ColorCode:  b.config.DMR.ColorCode,
+		Latitude:   b.config.DMR.Latitude,
+		Longitude:  b.config.DMR.Longitude,
+		Height:     b.config.DMR.Height,
+		Location:   b.config.DMR.Location,
+		Description: b.config.DMR.Description,
+		URL:        b.config.DMR.URL,
+		SoftwareID: "YSF2DMR",
+		PackageID:  "YSF2DMR Bridge",
+	}
+
+	b.dmrClient = network.NewClient(dmrSysCfg, b.logger.WithComponent("dmr"))
+
+	// Set up DMR packet handler
+	b.dmrClient.OnDMRD(b.handleDMRPacket)
+
+	// Start DMR client in background
+	go func() {
+		if err := b.dmrClient.Start(ctx); err != nil && err != context.Canceled {
+			b.logger.Error("DMR client error", logger.Error(err))
+		}
+	}()
+
+	b.logger.Info("DMR client started",
+		logger.String("server", fmt.Sprintf("%s:%d", b.config.DMR.ServerAddress, b.config.DMR.ServerPort)),
+		logger.Uint32("dmr_id", b.config.DMR.ID))
 
 	// Start bridge loops
 	go b.ysfToDMRLoop(ctx)
@@ -79,13 +124,19 @@ func (b *Bridge) Start(ctx context.Context) error {
 
 // ysfToDMRLoop handles YSF -> DMR conversion
 func (b *Bridge) ysfToDMRLoop(ctx context.Context) {
-	ysfTicker := time.NewTicker(time.Duration(codec.YSFFramePer) * time.Millisecond)
+	// YSF frame processing ticker
+	ysfTicker := time.NewTicker(10 * time.Millisecond)
 	defer ysfTicker.Stop()
+
+	// DMR frame transmission ticker
+	dmrTicker := time.NewTicker(time.Duration(codec.DMRFramePer) * time.Millisecond)
+	defer dmrTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+
 		case <-ysfTicker.C:
 			// Read YSF frames from network
 			data := b.ysfNet.Read()
@@ -104,22 +155,68 @@ func (b *Bridge) ysfToDMRLoop(ctx context.Context) {
 				b.logger.Error("Failed to process YSF frame",
 					logger.Error(err))
 			}
+
+		case <-dmrTicker.C:
+			// Get converted DMR frame from codec
+			frame := make([]byte, 33)
+			frameType := b.converter.GetDMR(frame)
+
+			switch frameType {
+			case codec.TagHeader:
+				// Send DMR header
+				if err := b.sendDMRHeader(); err != nil {
+					b.logger.Error("Failed to send DMR header", logger.Error(err))
+				}
+
+			case codec.TagData:
+				// Send DMR voice frame
+				if err := b.sendDMRVoice(frame); err != nil {
+					b.logger.Error("Failed to send DMR voice", logger.Error(err))
+				}
+
+			case codec.TagEOT:
+				// Send DMR terminator
+				if err := b.sendDMRTerminator(); err != nil {
+					b.logger.Error("Failed to send DMR terminator", logger.Error(err))
+				}
+			}
 		}
 	}
 }
 
 // dmrToYSFLoop handles DMR -> YSF conversion
 func (b *Bridge) dmrToYSFLoop(ctx context.Context) {
-	dmrTicker := time.NewTicker(time.Duration(codec.DMRFramePer) * time.Millisecond)
-	defer dmrTicker.Stop()
+	ysfTicker := time.NewTicker(time.Duration(codec.YSFFramePer) * time.Millisecond)
+	defer ysfTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-dmrTicker.C:
-			// TODO: Read DMR frames from client and convert to YSF
-			// This needs DMR client implementation
+		case <-ysfTicker.C:
+			// Get converted YSF frame from codec
+			frame := make([]byte, ysf.YSFHeaderLength)
+			frameType := b.converter.GetYSF(frame)
+
+			switch frameType {
+			case codec.TagHeader:
+				// Send YSF header
+				if err := b.sendYSFHeader(); err != nil {
+					b.logger.Error("Failed to send YSF header", logger.Error(err))
+				}
+
+			case codec.TagData:
+				// Send YSF voice frame
+				if err := b.sendYSFVoice(frame); err != nil {
+					b.logger.Error("Failed to send YSF voice", logger.Error(err))
+				}
+
+			case codec.TagEOT:
+				// Send YSF terminator
+				if err := b.sendYSFTerminator(); err != nil {
+					b.logger.Error("Failed to send YSF terminator", logger.Error(err))
+				}
+			}
 		}
 	}
 }
@@ -188,6 +285,8 @@ func (b *Bridge) handleYSFHeader(data []byte, payload []byte) error {
 	b.currentSrcID = srcID
 	b.streamActive = true
 	b.ysfFrames = 0
+	b.dmrSeqNum = 0
+	b.dmrStreamID = rand.Uint32()
 
 	// Set up FLCO
 	if b.config.DMR.StartupPrivate {
@@ -247,13 +346,252 @@ func (b *Bridge) handleYSFVoice(payload []byte) error {
 	return nil
 }
 
-// sendDMRPacket sends a DMR packet (placeholder)
-func (b *Bridge) sendDMRPacket(packet *protocol.DMRDPacket) error {
-	// TODO: Implement once DMR client is ready
+// handleDMRPacket processes a received DMR packet
+func (b *Bridge) handleDMRPacket(packet *protocol.DMRDPacket) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Check if this is for our talkgroup
+	if packet.DestinationID != b.currentDstID {
+		return
+	}
+
+	// Determine frame type
+	dataType := packet.DataType & 0x0F
+
+	// Voice LC Header (start of transmission)
+	if dataType == 0x01 {
+		b.dmrRxActive = true
+		b.dmrFrames = 0
+		b.dmrRxSrcID = packet.SourceID
+		b.dmrRxDstID = packet.DestinationID
+
+		// Get source callsign
+		srcCallsign := b.lookup.FindCallsign(packet.SourceID)
+		if srcCallsign == "" {
+			srcCallsign = fmt.Sprintf("%d", packet.SourceID)
+		}
+
+		b.logger.Info("DMR voice stream started",
+			logger.String("source", srcCallsign),
+			logger.Uint32("src_id", packet.SourceID),
+			logger.Uint32("dst_id", packet.DestinationID))
+
+		b.converter.PutDMRHeader()
+		return
+	}
+
+	// Terminator
+	if dataType == 0x02 {
+		if b.dmrRxActive {
+			duration := float64(b.dmrFrames) / 16.667
+			b.logger.Info("DMR voice stream ended",
+				logger.Float64("duration_seconds", duration),
+				logger.Uint("frames", b.dmrFrames))
+
+			b.converter.PutDMREOT()
+			b.dmrRxActive = false
+			b.dmrFrames = 0
+		}
+		return
+	}
+
+	// Voice frames
+	if b.dmrRxActive && (dataType == 0x00 || (dataType >= 0x03 && dataType <= 0x0A)) {
+		b.converter.PutDMR(packet.Payload)
+		b.dmrFrames++
+	}
+}
+
+// sendDMRHeader sends a DMR header packet
+func (b *Bridge) sendDMRHeader() error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	packet := &protocol.DMRDPacket{
+		Sequence:      b.dmrSeqNum,
+		SourceID:      b.currentSrcID,
+		DestinationID: b.currentDstID,
+		RepeaterID:    b.config.DMR.ID,
+		Timeslot:      2, // Always use timeslot 2
+		CallType:      int(b.currentFlco),
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		DataType:      0x01, // Voice LC Header
+		StreamID:      b.dmrStreamID,
+		Payload:       make([]byte, 33),
+	}
+
+	b.dmrSeqNum++
+
 	if b.dmrClient != nil {
-		// Send packet via DMR client
+		return b.dmrClient.SendDMRD(packet)
 	}
 	return nil
+}
+
+// sendDMRVoice sends a DMR voice packet
+func (b *Bridge) sendDMRVoice(voiceData []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Calculate voice sequence (0-5 repeating, with special handling for sync)
+	voiceSeq := byte((b.dmrSeqNum - 1) % 6)
+	dataType := byte(0x00) // Voice Sync/Voice
+	if voiceSeq == 0 {
+		dataType = 0x00 // Voice Sync
+	} else {
+		dataType = 0x03 + voiceSeq - 1 // 0x03-0x07 for frames A-F
+	}
+
+	packet := &protocol.DMRDPacket{
+		Sequence:      b.dmrSeqNum,
+		SourceID:      b.currentSrcID,
+		DestinationID: b.currentDstID,
+		RepeaterID:    b.config.DMR.ID,
+		Timeslot:      2,
+		CallType:      int(b.currentFlco),
+		FrameType:     protocol.FrameTypeVoice,
+		DataType:      dataType,
+		StreamID:      b.dmrStreamID,
+		Payload:       make([]byte, 33),
+	}
+
+	// Copy voice data
+	if len(voiceData) > 0 {
+		copy(packet.Payload, voiceData)
+	}
+
+	b.dmrSeqNum++
+
+	if b.dmrClient != nil {
+		return b.dmrClient.SendDMRD(packet)
+	}
+	return nil
+}
+
+// sendDMRTerminator sends a DMR terminator packet
+func (b *Bridge) sendDMRTerminator() error {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	packet := &protocol.DMRDPacket{
+		Sequence:      b.dmrSeqNum,
+		SourceID:      b.currentSrcID,
+		DestinationID: b.currentDstID,
+		RepeaterID:    b.config.DMR.ID,
+		Timeslot:      2,
+		CallType:      int(b.currentFlco),
+		FrameType:     protocol.FrameTypeVoiceTerminator,
+		DataType:      0x02, // Terminator with LC
+		StreamID:      b.dmrStreamID,
+		Payload:       make([]byte, 33),
+	}
+
+	b.dmrSeqNum++
+
+	if b.dmrClient != nil {
+		return b.dmrClient.SendDMRD(packet)
+	}
+	return nil
+}
+
+// sendYSFHeader sends a YSF header frame
+func (b *Bridge) sendYSFHeader() error {
+	frame := ysf.NewYSFFrame()
+
+	// Set gateway callsign
+	frame.Gateway = ysf.TrimCallsign(b.config.YSF.Callsign)
+
+	// Set source callsign from DMR ID
+	srcCallsign := b.lookup.FindCallsign(b.dmrRxSrcID)
+	if srcCallsign == "" {
+		srcCallsign = fmt.Sprintf("%d", b.dmrRxSrcID)
+	}
+	frame.Source = srcCallsign
+
+	// Set destination
+	frame.Dest = "ALL"
+
+	// Build frame
+	ysfData := make([]byte, ysf.YSFFrameLength)
+	copy(ysfData[0:4], frame.Signature)
+	copy(ysfData[4:14], []byte(frame.Gateway))
+	copy(ysfData[14:24], []byte(frame.Source))
+	copy(ysfData[24:34], []byte(frame.Dest))
+	ysfData[34] = 0 // Frame counter
+
+	// Set FICH for header
+	fich := &ysf.YSFFICH{}
+	fich.SetFI(ysf.YSFFIHeader)
+	fich.SetDT(ysf.YSFDTVDMode2)
+	_ = fich.Encode(ysfData[35:])
+
+	return b.ysfNet.Write(ysfData)
+}
+
+// sendYSFVoice sends a YSF voice frame
+func (b *Bridge) sendYSFVoice(voiceData []byte) error {
+	frame := ysf.NewYSFFrame()
+
+	// Set callsigns
+	frame.Gateway = ysf.TrimCallsign(b.config.YSF.Callsign)
+	srcCallsign := b.lookup.FindCallsign(b.dmrRxSrcID)
+	if srcCallsign == "" {
+		srcCallsign = fmt.Sprintf("%d", b.dmrRxSrcID)
+	}
+	frame.Source = srcCallsign
+	frame.Dest = "ALL"
+
+	// Build frame
+	ysfData := make([]byte, ysf.YSFFrameLength)
+	copy(ysfData[0:4], frame.Signature)
+	copy(ysfData[4:14], []byte(frame.Gateway))
+	copy(ysfData[14:24], []byte(frame.Source))
+	copy(ysfData[24:34], []byte(frame.Dest))
+	ysfData[34] = 0 // Frame counter
+
+	// Set FICH for communication
+	fich := &ysf.YSFFICH{}
+	fich.SetFI(ysf.YSFFICommunication)
+	fich.SetDT(ysf.YSFDTVDMode2)
+	_ = fich.Encode(ysfData[35:])
+
+	// Copy voice data
+	if len(voiceData) > 0 {
+		copy(ysfData[35:], voiceData)
+	}
+
+	return b.ysfNet.Write(ysfData)
+}
+
+// sendYSFTerminator sends a YSF terminator frame
+func (b *Bridge) sendYSFTerminator() error {
+	frame := ysf.NewYSFFrame()
+
+	// Set callsigns
+	frame.Gateway = ysf.TrimCallsign(b.config.YSF.Callsign)
+	srcCallsign := b.lookup.FindCallsign(b.dmrRxSrcID)
+	if srcCallsign == "" {
+		srcCallsign = fmt.Sprintf("%d", b.dmrRxSrcID)
+	}
+	frame.Source = srcCallsign
+	frame.Dest = "ALL"
+
+	// Build frame
+	ysfData := make([]byte, ysf.YSFFrameLength)
+	copy(ysfData[0:4], frame.Signature)
+	copy(ysfData[4:14], []byte(frame.Gateway))
+	copy(ysfData[14:24], []byte(frame.Source))
+	copy(ysfData[24:34], []byte(frame.Dest))
+	ysfData[34] = 0 // Frame counter
+
+	// Set FICH for terminator
+	fich := &ysf.YSFFICH{}
+	fich.SetFI(ysf.YSFFITerminator)
+	fich.SetDT(ysf.YSFDTVDMode2)
+	_ = fich.Encode(ysfData[35:])
+
+	return b.ysfNet.Write(ysfData)
 }
 
 // Stop stops the bridge
@@ -267,10 +605,7 @@ func (b *Bridge) Stop() error {
 		}
 	}
 
-	// Close DMR client
-	if b.dmrClient != nil {
-		// TODO: Close DMR client
-	}
+	// DMR client will be closed by context cancellation
 
 	b.logger.Info("YSF2DMR bridge stopped")
 	return nil
