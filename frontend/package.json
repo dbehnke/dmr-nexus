@@ -2,6 +2,7 @@
   "name": "dmr-nexus-frontend",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -17,6 +18,7 @@
   "vite": "^7.1.12",
   "@vitejs/plugin-vue": "^6.0.1",
     "tailwindcss": "^4.1.16",
+    "@tailwindcss/postcss": "^4.1.16",
     "postcss": "^8.4.47",
     "autoprefixer": "^10.4.20"
   }
