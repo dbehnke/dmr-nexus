@@ -3,7 +3,7 @@ package ysf
 // Golay(24,12) encoder/decoder
 // Based on Golay24128.cpp from MMDVM_CM by Jonathan Naylor G4KLX
 
-// Encode24128 encodes 12-bit data into 24-bit Golay codeword
+// Encode24128 encodes 12-bit data into 24-bit Golay codeword (with parity)
 func Encode24128(data uint32) uint32 {
 	// Truncate to 12 bits
 	data &= 0xFFF
@@ -23,6 +23,18 @@ func Encode24128(data uint32) uint32 {
 	return 0
 }
 
+// Encode23127 encodes 12-bit data into 23-bit Golay codeword (without parity)
+func Encode23127(data uint32) uint32 {
+	// Truncate to 12 bits
+	data &= 0xFFF
+
+	// Look up in encoding table
+	if data < uint32(len(encodingTable23127)) {
+		return encodingTable23127[data]
+	}
+	return 0
+}
+
 // Decode24128 decodes 24-bit Golay codeword (from byte array)
 func Decode24128(bytes []byte) uint32 {
 	if len(bytes) < 3 {
@@ -34,65 +46,62 @@ func Decode24128(bytes []byte) uint32 {
 }
 
 // Decode24128Code decodes a 24-bit Golay codeword
+// Uses syndrome-based decoding for error correction
 func Decode24128Code(code uint32) uint32 {
-	// Remove parity bit
-	code >>= 1
-	code &= 0x7FFFFF // 23 bits
+	// Extract the 23-bit code (remove parity bit)
+	code23 := (code >> 1) & 0x7FFFFF
 
-	// Try to find syndrome
-	syndrome := calculateSyndrome23(code)
-	if syndrome == 0 {
-		// No errors
-		return code >> 11
-	}
+	// Try syndrome decoding - XOR with all valid codewords
+	// and find the one with minimum Hamming distance
+	minDistance := 24
+	bestData := uint32(0)
 
-	// Check if syndrome is correctable (weight <= 3)
-	weight := hammingWeight(syndrome)
-	if weight <= 3 {
-		// Error in parity bits only
-		return code >> 11
-	}
+	// Search through all 4096 possible data values
+	for data := uint32(0); data < 4096; data++ {
+		var validCode uint32
+		if data < uint32(len(encodingTable23127)) {
+			validCode = encodingTable23127[data]
+		} else {
+			// Shouldn't happen since table has all 4096 entries after init
+			validCode = generateGolay23(data)
+		}
 
-	// Try to find error pattern
-	for i := uint32(0); i < 12; i++ {
-		// Try single bit error in data
-		testCode := code ^ (1 << (23 - i))
-		testSyndrome := calculateSyndrome23(testCode)
-		if testSyndrome == 0 {
-			return testCode >> 11
+		// Calculate Hamming distance
+		distance := hammingWeight((code23 ^ validCode) & 0x7FFFFF)
+
+		if distance < minDistance {
+			minDistance = distance
+			bestData = data
+
+			// If we found a perfect match, we can stop
+			if distance == 0 {
+				break
+			}
 		}
 	}
 
-	// Use minimum distance decoding
-	minDist := 24
-	bestMatch := uint32(0)
-
-	for i := uint32(0); i < 4096; i++ {
-		encoded := encodingTable23127[i]
-		dist := hammingDistance23(code, encoded)
-		if dist < minDist {
-			minDist = dist
-			bestMatch = i
-		}
-		if dist == 0 {
-			break
-		}
-	}
-
-	return bestMatch
+	// Golay(24,12) can correct up to 3 bit errors
+	// If distance > 3, the data may be unreliable but we return the best match
+	return bestData
 }
 
-// calculateSyndrome23 calculates syndrome for 23-bit Golay code
-func calculateSyndrome23(code uint32) uint32 {
-	syndrome := uint32(0)
-	for i := uint32(0); i < 12; i++ {
-		if code&(1<<(22-i)) != 0 {
-			syndrome ^= syndromeTable[i]
+// generateGolay23 generates Golay(23,12) codeword for given 12-bit data
+func generateGolay23(data uint32) uint32 {
+	// Generator polynomial: x^11 + x^10 + x^6 + x^5 + x^4 + x^2 + 1
+	data &= 0xFFF
+	code := data << 11
+
+	// XOR with generator polynomial for each bit position
+	gen := uint32(0xC75) // Binary: 110001110101
+
+	for i := 11; i >= 0; i-- {
+		if code&(1<<(i+11)) != 0 {
+			code ^= gen << i
 		}
 	}
-	// Include parity bits
-	syndrome ^= (code & 0x7FF)
-	return syndrome
+
+	// Result is data bits concatenated with parity bits
+	return (data << 11) | (code & 0x7FF)
 }
 
 // hammingWeight returns number of 1 bits
@@ -110,51 +119,14 @@ func hammingDistance23(a, b uint32) int {
 	return hammingWeight((a ^ b) & 0x7FFFFF)
 }
 
-// Golay(23,12) generator polynomial: x^11 + x^10 + x^6 + x^5 + x^4 + x^2 + 1
-// Syndrome lookup table for error correction
-var syndromeTable = []uint32{
-	0x400, 0x200, 0x100, 0x080, 0x040, 0x020,
-	0x010, 0x008, 0x004, 0x002, 0x001, 0x600,
-}
-
 // Golay(23,12) encoding table - encodes 12-bit data to 23-bit code
-// This is a partial table - full table would have 4096 entries
-var encodingTable23127 = []uint32{
-	0x000000, 0x0018EA, 0x00293E, 0x0031D4, 0x004A96, 0x00527C, 0x0063A8, 0x007B42,
-	0x008DC6, 0x00952C, 0x00A4F8, 0x00BC12, 0x00C750, 0x00DFBA, 0x00EE6E, 0x00F684,
-	0x010366, 0x011B8C, 0x012A58, 0x0132B2, 0x0149F0, 0x01511A, 0x0160CE, 0x017824,
-	0x018EA0, 0x01964A, 0x01A79E, 0x01BF74, 0x01C436, 0x01DCDC, 0x01ED08, 0x01F5E2,
-	0x0206CC, 0x021E26, 0x022FF2, 0x023718, 0x024C5A, 0x0254B0, 0x026564, 0x027D8E,
-	0x028B0A, 0x0293E0, 0x02A234, 0x02BADE, 0x02C19C, 0x02D976, 0x02E8A2, 0x02F048,
-	0x0305AA, 0x031D40, 0x032C94, 0x03347E, 0x034F3C, 0x0357D6, 0x036602, 0x037EE8,
-	0x03886C, 0x039086, 0x03A152, 0x03B9B8, 0x03C2FA, 0x03DA10, 0x03EBC4, 0x03F32E,
-	// Additional entries would continue...
-	// For brevity, including first 64 entries. Full implementation would need all 4096.
-}
+// Fully generated at init to ensure consistency with generator polynomial
+var encodingTable23127 []uint32
 
 func init() {
-	// Generate full encoding table at runtime if not complete
-	if len(encodingTable23127) < 4096 {
-		// Generate remaining entries using polynomial multiplication
-		newTable := make([]uint32, 4096)
-		copy(newTable, encodingTable23127)
-
-		// Generator polynomial coefficients
-		gen := uint32(0xC75) // x^11 + x^10 + x^6 + x^5 + x^4 + x^2 + 1
-
-		for i := len(encodingTable23127); i < 4096; i++ {
-			data := uint32(i)
-			code := data << 11
-
-			// Polynomial division
-			for j := 11; j >= 0; j-- {
-				if code&(1<<(j+11)) != 0 {
-					code ^= gen << j
-				}
-			}
-
-			newTable[i] = (data << 11) | code
-		}
-		encodingTable23127 = newTable
+	// Generate full encoding table at runtime
+	encodingTable23127 = make([]uint32, 4096)
+	for i := 0; i < 4096; i++ {
+		encodingTable23127[i] = generateGolay23(uint32(i))
 	}
 }

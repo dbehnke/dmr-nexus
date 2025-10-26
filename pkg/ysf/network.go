@@ -160,11 +160,12 @@ func (n *YSFNetwork) receiveLoop(ctx context.Context) {
 			continue
 		}
 
-		// Verify packet is from our server
-		if remoteAddr.String() != n.serverUDPAddr.String() {
+		// Verify packet is from our server (relaxed check - same IP, any port)
+		if remoteAddr.IP.String() != n.serverUDPAddr.IP.String() {
 			if n.debug {
-				n.logger.Debug("Received packet from unexpected address",
-					logger.String("addr", remoteAddr.String()))
+				n.logger.Debug("Received packet from unexpected IP address",
+					logger.String("addr", remoteAddr.String()),
+					logger.String("expected", n.serverUDPAddr.String()))
 			}
 			continue
 		}

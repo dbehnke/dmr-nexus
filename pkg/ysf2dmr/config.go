@@ -24,6 +24,19 @@ type YSFConfig struct {
 	ServerPort    int    `mapstructure:"server_port"`
 	HangTime      int    `mapstructure:"hang_time"` // milliseconds
 	Debug         bool   `mapstructure:"debug"`
+
+	// FICH (Frame Information Channel Header) configuration
+	FICHCallSign      byte   `mapstructure:"fich_callsign"`       // 0=use radio ID, 1=use callsign
+	FICHCallMode      byte   `mapstructure:"fich_callmode"`       // 0=group, 1=individual
+	FICHFrameTotal    byte   `mapstructure:"fich_frametotal"`     // Frame total (0-7)
+	FICHMessageRoute  byte   `mapstructure:"fich_messageroute"`   // 0=local, 1=network
+	FICHVOIP          byte   `mapstructure:"fich_voip"`           // 0=off, 1=on
+	FICHDataType      byte   `mapstructure:"fich_datatype"`       // 0=voice/data, 1=data, 2=voice
+	FICHSQLType       byte   `mapstructure:"fich_sqltype"`        // 0=off, 1=on
+	FICHSQLCode       byte   `mapstructure:"fich_sqlcode"`        // SQL code (0-255)
+	YSFRadioID        string `mapstructure:"ysf_radioid"`         // YSF radio ID (5 characters)
+	YSFDT1            []byte `mapstructure:"ysf_dt1"`             // DT1 data (10 bytes)
+	YSFDT2            []byte `mapstructure:"ysf_dt2"`             // DT2 data (10 bytes)
 }
 
 // DMRConfig holds DMR network configuration
@@ -32,6 +45,8 @@ type DMRConfig struct {
 	Callsign       string  `mapstructure:"callsign"`
 	StartupTG      uint32  `mapstructure:"startup_tg"`
 	StartupPrivate bool    `mapstructure:"startup_private"`
+	StartupPTT     bool    `mapstructure:"startup_ptt"` // Send PTT (dummy frame) on startup to activate talkgroup
+	Timeslot       int     `mapstructure:"timeslot"`
 	ServerAddress  string  `mapstructure:"server_address"`
 	ServerPort     int     `mapstructure:"server_port"`
 	Password       string  `mapstructure:"password"`
@@ -115,6 +130,19 @@ func setDefaults() {
 	viper.SetDefault("ysf.hang_time", 1000)
 	viper.SetDefault("ysf.debug", false)
 
+	// FICH defaults (matching MMDVM_CM defaults)
+	viper.SetDefault("ysf.fich_callsign", 0)      // Use radio ID
+	viper.SetDefault("ysf.fich_callmode", 0)      // Group call
+	viper.SetDefault("ysf.fich_frametotal", 7)    // Frame total 7
+	viper.SetDefault("ysf.fich_messageroute", 0)  // Local
+	viper.SetDefault("ysf.fich_voip", 0)          // Off
+	viper.SetDefault("ysf.fich_datatype", 2)      // Voice
+	viper.SetDefault("ysf.fich_sqltype", 0)       // Off
+	viper.SetDefault("ysf.fich_sqlcode", 0)       // Code 0
+	viper.SetDefault("ysf.ysf_radioid", "*****")  // Default radio ID
+	viper.SetDefault("ysf.ysf_dt1", []byte{0x31, 0x22, 0x62, 0x5F, 0x29, 0x00, 0x00, 0x00, 0x00, 0x00})
+	viper.SetDefault("ysf.ysf_dt2", []byte{0x00, 0x00, 0x00, 0x00, 0x6C, 0x20, 0x1C, 0x20, 0x03, 0x08})
+
 	// DMR defaults
 	viper.SetDefault("dmr.color_code", 1)
 	viper.SetDefault("dmr.rx_freq", 435000000)
@@ -128,6 +156,8 @@ func setDefaults() {
 	viper.SetDefault("dmr.url", "")
 	viper.SetDefault("dmr.jitter", 500)
 	viper.SetDefault("dmr.startup_private", false)
+	viper.SetDefault("dmr.startup_ptt", true) // Send PTT on startup by default
+	viper.SetDefault("dmr.timeslot", 2)
 	viper.SetDefault("dmr.debug", false)
 
 	// DMRID defaults
@@ -174,6 +204,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.DMR.StartupTG == 0 {
 		return fmt.Errorf("dmr.startup_tg is required")
+	}
+	if cfg.DMR.Timeslot != 1 && cfg.DMR.Timeslot != 2 {
+		return fmt.Errorf("dmr.timeslot must be 1 or 2")
 	}
 	if cfg.DMR.ColorCode < 0 || cfg.DMR.ColorCode > 15 {
 		return fmt.Errorf("dmr.color_code must be between 0 and 15")

@@ -11,6 +11,13 @@ const (
 	ysfSyncLengthBytes = 5
 )
 
+// Adaptive decode controls. If we detect that the incoming stream has
+// swapped symbol order (s0/s1), we toggle this to improve CRC success.
+var (
+	fichSwapSymbols bool // when true, feed Viterbi with (s1,s0) instead of (s0,s1)
+	fichAdapted     bool // set once we've chosen a mode based on successful CRC
+)
+
 // Interleave table for FICH bits
 var interleaveTable = []uint{
 	0, 40, 80, 120, 160,
@@ -118,6 +125,31 @@ func (f *YSFFICH) Decode(payload []byte) (bool, error) {
 	// Skip sync bytes
 	bytes := payload[ysfSyncLengthBytes:]
 
+	// Try decode using current symbol order
+	valid := f.decodeWithSymbols(bytes, fichSwapSymbols)
+	if valid {
+		return true, nil
+	}
+
+	// If CRC failed and we haven't adapted yet, try swapped symbol order once
+	if !fichAdapted {
+		if f.decodeWithSymbols(bytes, !fichSwapSymbols) {
+			// Adapt to swapped order going forward
+			fichSwapSymbols = !fichSwapSymbols
+			fichAdapted = true
+			return true, nil
+		}
+		// If both failed, mark adapted to avoid repeated attempts
+		fichAdapted = true
+	}
+
+	// Fields were parsed during decodeWithSymbols; return invalid
+	return false, nil
+}
+
+// decodeWithSymbols performs the Viterbi+Golay decode and field parsing.
+// If swap is true, it feeds the symbol pairs to Viterbi as (s1,s0).
+func (f *YSFFICH) decodeWithSymbols(bytes []byte, swap bool) bool {
 	// Initialize Viterbi decoder
 	viterbi := NewYSFConvolution()
 	viterbi.Start()
@@ -134,14 +166,18 @@ func (f *YSFFICH) Decode(payload []byte) (bool, error) {
 			s1 = 1
 		}
 
-		viterbi.Decode(s0, s1)
+		if swap {
+			viterbi.Decode(s1, s0)
+		} else {
+			viterbi.Decode(s0, s1)
+		}
 	}
 
 	// Chainback to get decoded bits
 	output := make([]byte, 13)
 	viterbi.Chainback(output, 96)
 
-	// Decode Golay(24,12) codes
+	// Decode Golay(24,12) codes to recover FICH data
 	b0 := Decode24128(output[0:3])
 	b1 := Decode24128(output[3:6])
 	b2 := Decode24128(output[6:9])
@@ -156,12 +192,7 @@ func (f *YSFFICH) Decode(payload []byte) (bool, error) {
 	fich[4] = byte(((b2 << 4) & 0xF0) | ((b3 >> 8) & 0x0F))
 	fich[5] = byte((b3 >> 0) & 0xFF)
 
-	// Check CRC
-	if !CheckCCITT162(fich) {
-		return false, nil
-	}
-
-	// Parse FICH fields
+	// Parse FICH fields (always parse to allow best-effort use upstream)
 	f.FI = (fich[0] >> 6) & 0x03
 	f.CS = (fich[0] >> 4) & 0x03
 	f.CM = (fich[0] >> 2) & 0x03
@@ -188,7 +219,15 @@ func (f *YSFFICH) Decode(payload []byte) (bool, error) {
 	}
 	f.SQ = fich[3] & 0x7F
 
-	return true, nil
+	// Check CRC
+	return CheckCCITT162(fich)
+}
+
+// ResetFICHAdaptation resets the adaptive decode state so the decoder will
+// retry both symbol orders on the next decode attempt. Useful at the start of
+// new transmissions where source characteristics may change.
+func ResetFICHAdaptation() {
+	fichAdapted = false
 }
 
 // SetFI sets the Frame Information field
