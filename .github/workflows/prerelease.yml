@@ -48,16 +48,32 @@ jobs:
         working-directory: ./frontend
         run: npm ci
 
-      - name: Generate tag name
+      - name: Generate semantic version tag
         id: tag
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
+          # Get the current version from release-please manifest
+          BASE_VERSION=$(cat .release-please-manifest.json | grep -oP '"\.":\s*"\K[^"]+')
+          
+          # Extract SHA and generate timestamp
           SHA=$(echo "$HEAD_SHA" | cut -c1-7)
-          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
-          TAG="prerelease-${TIMESTAMP}-${SHA}"
+          TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
+          
+          # Parse version components
+          MAJOR=$(echo "$BASE_VERSION" | cut -d. -f1)
+          MINOR=$(echo "$BASE_VERSION" | cut -d. -f2)
+          PATCH=$(echo "$BASE_VERSION" | cut -d. -f3)
+          
+          # Increment patch version for pre-release
+          NEXT_PATCH=$((PATCH + 1))
+          
+          # Create semantic version pre-release tag: v0.1.1-pre.20251026171047.e961141
+          TAG="v${MAJOR}.${MINOR}.${NEXT_PATCH}-pre.${TIMESTAMP}.${SHA}"
+          
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
+          echo "Generated pre-release tag: ${TAG}"
 
       - name: Create and push tag for GoReleaser
         env:
