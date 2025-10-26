@@ -1,0 +1,88 @@
+name: Pre-release on CI Success
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  create-prerelease:
+    runs-on: ubuntu-latest
+    # Only run if CI passes
+    needs: []
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.25.3'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache Node modules
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Generate tag name
+        id: tag
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+          TAG="prerelease-${TIMESTAMP}-${SHA}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "sha=${SHA}" >> $GITHUB_OUTPUT
+
+      - name: Run GoReleaser for pre-release
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean --snapshot
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub pre-release
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA: ${{ steps.tag.outputs.sha }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const sha = process.env.SHA;
+            const name = `Pre-release ${tag}`;
+            const body = `Automated pre-release created after successful CI run for main branch.\n\nCommit: ${context.sha}\nShort SHA: ${sha}\n\nThis is a development release and may be unstable.`;
+            
+            try {
+              const response = await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                name: name,
+                body: body,
+                target_commitish: context.sha,
+                draft: false,
+                prerelease: true,
+              });
+              core.info(`Created pre-release: ${response.data.html_url}`);
+            } catch (error) {
+              core.setFailed(`Failed to create pre-release: ${error.message}`);
+            }
