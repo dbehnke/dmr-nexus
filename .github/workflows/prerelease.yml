@@ -1,7 +1,9 @@
 name: Pre-release on CI Success
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches:
       - main
 
@@ -12,11 +14,12 @@ jobs:
   create-prerelease:
     runs-on: ubuntu-latest
     # Only run if CI passes
-    needs: []
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
       - name: Set up Go
@@ -43,46 +46,29 @@ jobs:
 
       - name: Generate tag name
         id: tag
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          SHA=$(git rev-parse --short HEAD)
+          SHA=$(echo "$HEAD_SHA" | cut -c1-7)
           TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
           TAG="prerelease-${TIMESTAMP}-${SHA}"
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
 
-      - name: Run GoReleaser for pre-release
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Automated pre-release $TAG"
+          git push origin "$TAG"
+
+      - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: release --clean --snapshot
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create GitHub pre-release
-        uses: actions/github-script@v7
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          SHA: ${{ steps.tag.outputs.sha }}
-        with:
-          script: |
-            const tag = process.env.TAG;
-            const sha = process.env.SHA;
-            const name = `Pre-release ${tag}`;
-            const body = `Automated pre-release created after successful CI run for main branch.\n\nCommit: ${context.sha}\nShort SHA: ${sha}\n\nThis is a development release and may be unstable.`;
-            
-            try {
-              const response = await github.rest.repos.createRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                tag_name: tag,
-                name: name,
-                body: body,
-                target_commitish: context.sha,
-                draft: false,
-                prerelease: true,
-              });
-              core.info(`Created pre-release: ${response.data.html_url}`);
-            } catch (error) {
-              core.setFailed(`Failed to create pre-release: ${error.message}`);
-            }

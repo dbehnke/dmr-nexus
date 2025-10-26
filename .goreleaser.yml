@@ -89,11 +89,13 @@ release:
   mode: replace
   header: |
     ## DMR-Nexus {{ .Tag }}
-    
+
     Release {{ .Tag }} - {{ .Date }}
   footer: |
     ## Installation
-    
-    Download the appropriate archive for your platform, extract it, and run the binary.
-    
-    For configuration, see the included sample config file or visit the [documentation](https://github.com/dbehnke/dmr-nexus).
+
+    Download the appropriate archive for your platform, extract it,
+    and run the binary.
+
+    For configuration, see the included sample config file or visit
+    the [documentation](https://github.com/dbehnke/dmr-nexus).
