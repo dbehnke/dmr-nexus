@@ -151,6 +151,26 @@ func TestParseOptions(t *testing.T) {
 			want:    nil,
 			wantErr: true,
 		},
+		{
+			name:  "Null-padded string from binary packet",
+			input: "TS2=70777\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00",
+			want: &SubscriptionOptions{
+				TS1:  []uint32{},
+				TS2:  []uint32{70777},
+				Auto: 0,
+			},
+			wantErr: false,
+		},
+		{
+			name:  "Multiple values with null padding",
+			input: "TS1=3100,3101;TS2=91\x00\x00\x00\x00\x00\x00\x00\x00",
+			want: &SubscriptionOptions{
+				TS1:  []uint32{3100, 3101},
+				TS2:  []uint32{91},
+				Auto: 0,
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
