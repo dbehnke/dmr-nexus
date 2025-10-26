@@ -2,7 +2,10 @@ package web
 
 import (
 	"context"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -104,5 +107,80 @@ func TestServer_HealthEndpoint(t *testing.T) {
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestSpaHandler(t *testing.T) {
+	// Create a temporary directory with test files
+	tmpDir := t.TempDir()
+
+	// Create index.html
+	indexContent := []byte("<html><body>Index</body></html>")
+	if err := os.WriteFile(tmpDir+"/index.html", indexContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a static file
+	staticContent := []byte("body { color: red; }")
+	if err := os.WriteFile(tmpDir+"/style.css", staticContent, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the filesystem
+	fsys := http.Dir(tmpDir)
+	handler := spaHandler(fsys)
+
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectedBody   []byte
+	}{
+		{
+			name:           "root path serves index.html",
+			path:           "/",
+			expectedStatus: http.StatusOK,
+			expectedBody:   indexContent,
+		},
+		{
+			name:           "static file exists",
+			path:           "/style.css",
+			expectedStatus: http.StatusOK,
+			expectedBody:   staticContent,
+		},
+		{
+			name:           "non-existent route falls back to index.html",
+			path:           "/bridges",
+			expectedStatus: http.StatusOK,
+			expectedBody:   indexContent,
+		},
+		{
+			name:           "nested route falls back to index.html",
+			path:           "/peers/123",
+			expectedStatus: http.StatusOK,
+			expectedBody:   indexContent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.expectedStatus {
+				t.Errorf("expected status %d, got %d", tt.expectedStatus, rec.Code)
+			}
+
+			body, err := io.ReadAll(rec.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if string(body) != string(tt.expectedBody) {
+				t.Errorf("expected body %q, got %q", string(tt.expectedBody), string(body))
+			}
+		})
 	}
 }

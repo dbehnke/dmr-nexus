@@ -34,6 +34,31 @@ type Server struct {
 	}
 }
 
+// spaHandler wraps an http.FileSystem to serve a Single Page Application.
+// It tries to serve the requested file, and if not found, serves index.html instead.
+// This is necessary for client-side routing (e.g., Vue Router with HTML5 history mode).
+func spaHandler(fsys http.FileSystem) http.Handler {
+	fileServer := http.FileServer(fsys)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Try to open the requested file
+		path := r.URL.Path
+		if path == "/" {
+			path = "/index.html"
+		}
+		f, err := fsys.Open(path)
+		if err == nil {
+			// File exists, serve it normally
+			f.Close()
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		// File not found, serve index.html for SPA routing
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
+	})
+}
+
 // NewServer creates a new web server instance
 func NewServer(cfg config.WebConfig, log *logger.Logger) *Server {
 	return &Server{
@@ -142,8 +167,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Try embedded static assets first (built into the binary via go:embed)
 	if fsys, err := embeddedStaticFS(); err == nil && fsys != nil {
 		s.logger.Info("Serving embedded frontend assets")
-		fileServer := http.FileServer(fsys)
-		mux.Handle("/", fileServer)
+		mux.Handle("/", spaHandler(fsys))
 	} else {
 		// Fallback to filesystem directory
 		staticDir := "frontend/dist"
