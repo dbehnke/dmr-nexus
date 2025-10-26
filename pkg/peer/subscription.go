@@ -394,7 +394,7 @@ func ParseOptions(input string) (*SubscriptionOptions, error) {
 
 	// Trim null bytes from input (common in binary protocol packets)
 	input = strings.Trim(input, "\x00")
-	
+
 	if input == "" {
 		return opts, nil
 	}
@@ -464,7 +464,7 @@ func ParseOptions(input string) (*SubscriptionOptions, error) {
 func parseTalkgroupList(input string) ([]uint32, error) {
 	// Trim null bytes from input (common in binary protocol packets)
 	input = strings.Trim(input, "\x00")
-	
+
 	if input == "" {
 		return []uint32{}, nil
 	}
