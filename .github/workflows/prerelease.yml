@@ -16,6 +16,10 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     steps:
+      # Note: Checking out workflow_run.head_sha is safe here because:
+      # 1. This only runs on main branch (checked in job if condition)
+      # 2. This only runs after CI passes successfully
+      # 3. We use the exact SHA that passed CI, not a branch ref
       - name: Checkout
         uses: actions/checkout@v4
         with:
