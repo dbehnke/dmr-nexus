@@ -4,8 +4,6 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
-    branches:
-      - main
 
 permissions:
   contents: write
@@ -13,8 +11,10 @@ permissions:
 jobs:
   create-prerelease:
     runs-on: ubuntu-latest
-    # Only run if CI passes
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Only run if CI passes and on main branch
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "sha=${SHA}" >> $GITHUB_OUTPUT
 
-      - name: Create and push tag
+      - name: Create and push tag for GoReleaser
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
@@ -64,7 +64,7 @@ jobs:
           git tag -a "$TAG" -m "Automated pre-release $TAG"
           git push origin "$TAG"
 
-      - name: Run GoReleaser
+      - name: Run GoReleaser to build and create pre-release
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
