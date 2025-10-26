@@ -1,5 +1,14 @@
 name: Release Please
 
+# IMPORTANT: This workflow requires the following repository setting to be enabled:
+# Settings > Actions > General > Workflow permissions
+# ✓ "Allow GitHub Actions to create and approve pull requests"
+#
+# Without this setting enabled, the workflow will fail with:
+# "GitHub Actions is not permitted to create or approve pull requests"
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository
+
 on:
   push:
     branches:

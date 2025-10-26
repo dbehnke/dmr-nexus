@@ -390,6 +390,7 @@ See [MIGRATION.md](docs/MIGRATION.md) for detailed migration guide.
 - **[CONFIG.md](docs/CONFIG.md)**: Configuration reference
 - **[API.md](docs/API.md)**: REST API documentation
 - **[MIGRATION.md](docs/MIGRATION.md)**: Migration from hblink3
+- **[RELEASE_PLEASE_SETUP.md](docs/RELEASE_PLEASE_SETUP.md)**: Release automation setup (for maintainers)
 
 ## Contributing
 
