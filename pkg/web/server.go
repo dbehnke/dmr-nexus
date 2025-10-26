@@ -47,15 +47,17 @@ func spaHandler(fsys http.FileSystem) http.Handler {
 		}
 		f, err := fsys.Open(path)
 		if err == nil {
-			// File exists, serve it normally
-			f.Close()
+			// File exists, close it and serve normally
+			_ = f.Close()
 			fileServer.ServeHTTP(w, r)
 			return
 		}
 
 		// File not found, serve index.html for SPA routing
-		r.URL.Path = "/"
-		fileServer.ServeHTTP(w, r)
+		// Clone the request to avoid mutating the original
+		indexReq := r.Clone(r.Context())
+		indexReq.URL.Path = "/"
+		fileServer.ServeHTTP(w, indexReq)
 	})
 }
 
