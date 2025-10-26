@@ -392,6 +392,9 @@ func ParseOptions(input string) (*SubscriptionOptions, error) {
 		TS2: []uint32{},
 	}
 
+	// Trim null bytes from input (common in binary protocol packets)
+	input = strings.Trim(input, "\x00")
+
 	if input == "" {
 		return opts, nil
 	}
@@ -407,7 +410,9 @@ func ParseOptions(input string) (*SubscriptionOptions, error) {
 		}
 
 		key := strings.ToUpper(strings.TrimSpace(parts[0]))
+		// Trim whitespace and null bytes from value
 		value := strings.TrimSpace(parts[1])
+		value = strings.Trim(value, "\x00")
 
 		switch key {
 		case "TS1":
@@ -457,6 +462,9 @@ func ParseOptions(input string) (*SubscriptionOptions, error) {
 
 // parseTalkgroupList parses a comma-separated list of talkgroup IDs
 func parseTalkgroupList(input string) ([]uint32, error) {
+	// Trim null bytes from input (common in binary protocol packets)
+	input = strings.Trim(input, "\x00")
+
 	if input == "" {
 		return []uint32{}, nil
 	}
@@ -465,7 +473,9 @@ func parseTalkgroupList(input string) ([]uint32, error) {
 	result := make([]uint32, 0, len(parts))
 
 	for _, part := range parts {
+		// Trim whitespace and null bytes from the part
 		part = strings.TrimSpace(part)
+		part = strings.Trim(part, "\x00")
 		if part == "" {
 			continue
 		}
