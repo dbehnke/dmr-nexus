@@ -95,7 +95,11 @@ Configured to automatically check for dependency updates:
 Pre-releases are created automatically:
 - Every push to `main` that passes CI triggers a pre-release
 - Pre-releases include binaries for all platforms
-- Tagged as `prerelease-YYYYMMDD-HHMMSS-SHA`
+- Tagged using semantic versioning: `vX.Y.Z-pre.YYYYMMDDHHMMSS.SHA`
+  - Example: `v0.1.1-pre.20251026184636.e961141`
+  - Base version is read from `.release-please-manifest.json` with patch version incremented
+  - Includes timestamp and commit SHA for uniqueness
+  - Compatible with GoReleaser v2's semantic version requirements
 - Marked as "pre-release" on GitHub
 
 ## Security Scanning
