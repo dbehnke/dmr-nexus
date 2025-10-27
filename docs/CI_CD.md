@@ -23,8 +23,9 @@ Automatically manages releases and changelogs:
 - Follows [Conventional Commits](https://www.conventionalcommits.org/) to determine version bumps
 - Generates `CHANGELOG.md` automatically
 - When the release PR is merged, creates a GitHub release
+- Creates semantic version tags (e.g., `v0.3.0`) without package name prefix
 
-**Current Version:** 0.1.0 (next release will be 0.2.0)
+**Current Version:** 0.3.0
 
 ### 3. GoReleaser (`goreleaser.yml`)
 **Trigger:** When a release is published
@@ -120,6 +121,7 @@ Pre-releases are created automatically:
 
 - `.goreleaser.yml` - GoReleaser configuration
 - `.release-please-config.json` - Release Please settings
+  - `include-component-in-tag: false` ensures tags use semantic version format (e.g., `v0.3.0`) instead of including package name (e.g., `dmr-nexus-v0.3.0`)
 - `.release-please-manifest.json` - Current version tracking
 - `.github/dependabot.yml` - Dependabot configuration
 - `.github/workflows/*.yml` - GitHub Actions workflows
