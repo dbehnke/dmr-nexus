@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/dbehnke/dmr-nexus/compare/dmr-nexus-v0.2.0...dmr-nexus-v0.3.0) (2025-10-27)
+
+
+### Features
+
+* Add Private Call (Unit-to-Unit) Routing Support ([#26](https://github.com/dbehnke/dmr-nexus/issues/26)) ([99e4599](https://github.com/dbehnke/dmr-nexus/commit/99e4599a74c7a27787b08cff835f35edbcdf27f3))
+
 ## [0.2.0](https://github.com/dbehnke/dmr-nexus/compare/dmr-nexus-v0.1.0...dmr-nexus-v0.2.0) (2025-10-26)
 
 
