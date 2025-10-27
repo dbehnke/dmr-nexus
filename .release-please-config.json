@@ -8,7 +8,8 @@
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
       "versioning": "default",
-      "extra-files": []
+      "extra-files": [],
+      "include-component-in-tag": false
     }
   },
   "plugins": []
