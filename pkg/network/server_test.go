@@ -935,6 +935,504 @@ func TestStreamMuteFirstTransmission_AAA(t *testing.T) {
 	}
 }
 
+// TestServer_PrivateCallRouting tests private call routing between two peers
+func TestServer_PrivateCallRouting(t *testing.T) {
+	cfg := config.SystemConfig{
+		Mode:                "MASTER",
+		Port:                0,
+		Passphrase:          "test",
+		PrivateCallsEnabled: true,
+		UseACL:              false,
+	}
+
+	log := logger.New(logger.Config{Level: "debug"})
+	srv := NewServer(cfg, "test-system", log)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Start server
+	go func() {
+		if err := srv.Start(ctx); err != nil && err != context.Canceled {
+			t.Logf("srv.Start error: %v", err)
+		}
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
+
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
+	}
+
+	// Create two peer connections
+	peer1ID := uint32(312001)
+	peer2ID := uint32(312002)
+	radio1ID := uint32(3120001) // Radio behind peer1
+	radio2ID := uint32(3120002) // Radio behind peer2
+
+	// Connect peer 1
+	conn1, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		t.Fatalf("Failed to create peer1 connection: %v", err)
+	}
+	defer func() {
+		if err := conn1.Close(); err != nil {
+			t.Logf("conn1.Close error: %v", err)
+		}
+	}()
+
+	// Connect peer 2
+	conn2, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		t.Fatalf("Failed to create peer2 connection: %v", err)
+	}
+	defer func() {
+		if err := conn2.Close(); err != nil {
+			t.Logf("conn2.Close error: %v", err)
+		}
+	}()
+
+	// Perform full connection handshake for peer1
+	if err := connectPeer(conn1, peer1ID, "PEER1"); err != nil {
+		t.Fatalf("Failed to connect peer1: %v", err)
+	}
+
+	// Perform full connection handshake for peer2
+	if err := connectPeer(conn2, peer2ID, "PEER2"); err != nil {
+		t.Fatalf("Failed to connect peer2: %v", err)
+	}
+
+	// Wait for peers to be connected
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify peers are connected
+	p1 := srv.peerManager.GetPeer(peer1ID)
+	if p1 == nil {
+		t.Fatal("Peer1 not found in manager")
+	}
+	p2 := srv.peerManager.GetPeer(peer2ID)
+	if p2 == nil {
+		t.Fatal("Peer2 not found in manager")
+	}
+
+	// Send a group call from radio1 to establish its location
+	dmrdGroup := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      radio1ID,
+		DestinationID: 3100, // Group call
+		RepeaterID:    peer1ID,
+		Timeslot:      1,
+		CallType:      protocol.CallTypeGroup,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		DataType:      0,
+		StreamID:      1001,
+		Payload:       make([]byte, 33),
+	}
+	data1, err := dmrdGroup.Encode()
+	if err != nil {
+		t.Fatalf("Failed to encode DMRD: %v", err)
+	}
+	t.Logf("Sending from conn1 (peer1): radio=%d, peer=%d", radio1ID, peer1ID)
+	if _, err := conn1.Write(data1); err != nil {
+		t.Fatalf("Failed to send group call: %v", err)
+	}
+
+	// Small delay to ensure packets are processed separately
+	time.Sleep(100 * time.Millisecond)
+
+	// Send a group call from radio2 to establish its location
+	dmrdGroup2 := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      radio2ID,
+		DestinationID: 3100, // Group call
+		RepeaterID:    peer2ID,
+		Timeslot:      1,
+		CallType:      protocol.CallTypeGroup,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		DataType:      0,
+		StreamID:      1002,
+		Payload:       make([]byte, 33),
+	}
+	data2, err := dmrdGroup2.Encode()
+	if err != nil {
+		t.Fatalf("Failed to encode DMRD: %v", err)
+	}
+	t.Logf("Sending from conn2 (peer2): radio=%d, peer=%d", radio2ID, peer2ID)
+	if _, err := conn2.Write(data2); err != nil {
+		t.Fatalf("Failed to send group call: %v", err)
+	}
+
+	// Wait for location tracking to update
+	time.Sleep(500 * time.Millisecond)
+
+	// Debug: check the subscriber map directly
+	srv.subscriberLocationsMu.RLock()
+	t.Logf("Subscriber locations map: %+v", srv.subscriberLocations)
+	srv.subscriberLocationsMu.RUnlock()
+
+	// Verify subscriber locations are tracked
+	loc1, found1 := srv.lookupSubscriberLocation(radio1ID)
+	if !found1 {
+		t.Fatalf("Radio1 location not tracked: found=%v", found1)
+	}
+	if loc1.ID != peer1ID {
+		t.Fatalf("Radio1 location incorrect: expected peerID=%d, got=%d", peer1ID, loc1.ID)
+	}
+
+	loc2, found2 := srv.lookupSubscriberLocation(radio2ID)
+	if !found2 {
+		t.Fatalf("Radio2 location not tracked: found=%v", found2)
+	}
+	if loc2.ID != peer2ID {
+		t.Fatalf("Radio2 location incorrect: expected peerID=%d, got=%d", peer2ID, loc2.ID)
+	}
+
+	// Now send a private call from radio1 to radio2
+	dmrdPrivate := &protocol.DMRDPacket{
+		Sequence:      2,
+		SourceID:      radio1ID,
+		DestinationID: radio2ID, // Private call to radio2
+		RepeaterID:    peer1ID,
+		Timeslot:      1,
+		CallType:      protocol.CallTypePrivate, // Private call
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		DataType:      0,
+		StreamID:      1003,
+		Payload:       make([]byte, 33),
+	}
+	privateData, _ := dmrdPrivate.Encode()
+	if _, err := conn1.Write(privateData); err != nil {
+		t.Fatalf("Failed to send private call: %v", err)
+	}
+
+	// Read from peer2's connection to verify it received the private call
+	buffer := make([]byte, 1024)
+	if err := conn2.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+
+	n, err := conn2.Read(buffer)
+	if err != nil {
+		t.Fatalf("Peer2 should receive private call: %v", err)
+	}
+
+	// Verify it's a DMRD packet
+	if string(buffer[0:4]) != protocol.PacketTypeDMRD {
+		t.Errorf("Expected DMRD packet, got %s", string(buffer[0:4]))
+	}
+
+	// Parse and verify it's the private call
+	received, err := protocol.ParseDMRD(buffer[:n])
+	if err != nil {
+		t.Fatalf("Failed to parse received DMRD: %v", err)
+	}
+
+	if received.SourceID != radio1ID {
+		t.Errorf("Expected source %d, got %d", radio1ID, received.SourceID)
+	}
+	if received.DestinationID != radio2ID {
+		t.Errorf("Expected destination %d, got %d", radio2ID, received.DestinationID)
+	}
+	if received.CallType != protocol.CallTypePrivate {
+		t.Errorf("Expected private call type, got %d", received.CallType)
+	}
+
+	// Verify peer1 does not receive the packet back
+	if err := conn1.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	_, err = conn1.Read(buffer)
+	if err == nil {
+		t.Error("Peer1 should not receive its own private call back")
+	}
+}
+
+// TestServer_PrivateCallDisabled tests that private calls are not routed when disabled
+func TestServer_PrivateCallDisabled(t *testing.T) {
+	cfg := config.SystemConfig{
+		Mode:                "MASTER",
+		Port:                0,
+		Passphrase:          "test",
+		PrivateCallsEnabled: false, // Disabled
+		UseACL:              false,
+	}
+
+	log := logger.New(logger.Config{Level: "debug"})
+	srv := NewServer(cfg, "test-system", log)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Start server
+	go func() {
+		if err := srv.Start(ctx); err != nil && err != context.Canceled {
+			t.Logf("srv.Start error: %v", err)
+		}
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
+
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
+	}
+
+	peer1ID := uint32(312001)
+	peer2ID := uint32(312002)
+	radio1ID := uint32(3120001)
+	radio2ID := uint32(3120002)
+
+	conn1, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		t.Fatalf("Failed to create peer1 connection: %v", err)
+	}
+	defer func() {
+		if err := conn1.Close(); err != nil {
+			t.Logf("conn1.Close error: %v", err)
+		}
+	}()
+
+	conn2, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		t.Fatalf("Failed to create peer2 connection: %v", err)
+	}
+	defer func() {
+		if err := conn2.Close(); err != nil {
+			t.Logf("conn2.Close error: %v", err)
+		}
+	}()
+
+	if err := connectPeer(conn1, peer1ID, "PEER1"); err != nil {
+		t.Fatalf("Failed to connect peer1: %v", err)
+	}
+	if err := connectPeer(conn2, peer2ID, "PEER2"); err != nil {
+		t.Fatalf("Failed to connect peer2: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Send private call with feature disabled
+	dmrdPrivate := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      radio1ID,
+		DestinationID: radio2ID,
+		RepeaterID:    peer1ID,
+		Timeslot:      1,
+		CallType:      protocol.CallTypePrivate,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		DataType:      0,
+		StreamID:      1001,
+		Payload:       make([]byte, 33),
+	}
+	privateData, _ := dmrdPrivate.Encode()
+	if _, err := conn1.Write(privateData); err != nil {
+		t.Fatalf("Failed to send private call: %v", err)
+	}
+
+	// Peer2 should NOT receive the private call since feature is disabled
+	buffer := make([]byte, 1024)
+	if err := conn2.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+
+	_, err = conn2.Read(buffer)
+	if err == nil {
+		t.Error("Peer2 should not receive private call when feature is disabled")
+	}
+}
+
+// TestServer_PrivateCallUnknownDestination tests routing when destination is unknown
+func TestServer_PrivateCallUnknownDestination(t *testing.T) {
+	cfg := config.SystemConfig{
+		Mode:                "MASTER",
+		Port:                0,
+		Passphrase:          "test",
+		PrivateCallsEnabled: true,
+		UseACL:              false,
+	}
+
+	log := logger.New(logger.Config{Level: "debug"})
+	srv := NewServer(cfg, "test-system", log)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	go func() {
+		if err := srv.Start(ctx); err != nil && err != context.Canceled {
+			t.Logf("srv.Start error: %v", err)
+		}
+	}()
+	if err := srv.WaitStarted(ctx); err != nil {
+		t.Fatalf("server failed to start: %v", err)
+	}
+
+	serverAddr, err := srv.Addr()
+	if err != nil {
+		t.Fatalf("Addr error: %v", err)
+	}
+
+	peer1ID := uint32(312001)
+	radio1ID := uint32(3120001)
+	unknownRadio := uint32(9999999)
+
+	conn1, err := net.DialUDP("udp", nil, serverAddr)
+	if err != nil {
+		t.Fatalf("Failed to create peer1 connection: %v", err)
+	}
+	defer func() {
+		if err := conn1.Close(); err != nil {
+			t.Logf("conn1.Close error: %v", err)
+		}
+	}()
+
+	if err := connectPeer(conn1, peer1ID, "PEER1"); err != nil {
+		t.Fatalf("Failed to connect peer1: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Send private call to unknown destination
+	dmrdPrivate := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      radio1ID,
+		DestinationID: unknownRadio,
+		RepeaterID:    peer1ID,
+		Timeslot:      1,
+		CallType:      protocol.CallTypePrivate,
+		FrameType:     protocol.FrameTypeVoiceHeader,
+		DataType:      0,
+		StreamID:      1001,
+		Payload:       make([]byte, 33),
+	}
+	privateData, _ := dmrdPrivate.Encode()
+	if _, err := conn1.Write(privateData); err != nil {
+		t.Fatalf("Failed to send private call: %v", err)
+	}
+
+	// Should not receive anything back (call dropped)
+	buffer := make([]byte, 1024)
+	if err := conn1.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+
+	_, err = conn1.Read(buffer)
+	if err == nil {
+		t.Error("Should not receive response for private call to unknown destination")
+	}
+}
+
+// TestServer_SubscriberLocationCleanup tests that stale subscriber locations are cleaned up
+func TestServer_SubscriberLocationCleanup(t *testing.T) {
+	cfg := config.SystemConfig{
+		Mode:                "MASTER",
+		Port:                0,
+		PrivateCallsEnabled: true,
+	}
+
+	log := logger.New(logger.Config{Level: "debug"})
+	srv := NewServer(cfg, "test-system", log)
+
+	radioID := uint32(3120001)
+	peerID := uint32(312001)
+
+	// Track a subscriber location
+	srv.trackSubscriberLocation(radioID, peerID)
+
+	// Verify it exists
+	_, found := srv.subscriberLocations[radioID]
+	if !found {
+		t.Fatal("Subscriber location should be tracked")
+	}
+
+	// Manually set the last seen time to 20 minutes ago
+	srv.subscriberLocationsMu.Lock()
+	srv.subscriberLocations[radioID].lastSeen = time.Now().Add(-20 * time.Minute)
+	srv.subscriberLocationsMu.Unlock()
+
+	// Run cleanup with 15 minute TTL
+	srv.cleanupStaleSubscriberLocations(15 * time.Minute)
+
+	// Verify it's cleaned up
+	_, found = srv.subscriberLocations[radioID]
+	if found {
+		t.Error("Stale subscriber location should be cleaned up")
+	}
+}
+
+// connectPeer performs a full connection handshake for a peer
+func connectPeer(conn *net.UDPConn, peerID uint32, callsign string) error {
+	buffer := make([]byte, 1024)
+
+	// Send RPTL
+	rptl := &protocol.RPTLPacket{RepeaterID: peerID}
+	data, _ := rptl.Encode()
+	if _, err := conn.Write(data); err != nil {
+		return err
+	}
+
+	// Read RPTACK
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return err
+	}
+	if _, err := conn.Read(buffer); err != nil {
+		return err
+	}
+
+	// Send RPTK
+	challenge := make([]byte, 32)
+	rptk := &protocol.RPTKPacket{
+		RepeaterID: peerID,
+		Challenge:  challenge,
+	}
+	data, _ = rptk.Encode()
+	if _, err := conn.Write(data); err != nil {
+		return err
+	}
+
+	// Read RPTACK
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return err
+	}
+	if _, err := conn.Read(buffer); err != nil {
+		return err
+	}
+
+	// Send RPTC
+	rptc := &protocol.RPTCPacket{
+		RepeaterID:  peerID,
+		Callsign:    callsign,
+		RXFreq:      "449000000",
+		TXFreq:      "444000000",
+		TXPower:     "25",
+		ColorCode:   "1",
+		Latitude:    "42.3601",
+		Longitude:   "-71.0589",
+		Height:      "75",
+		Location:    "Test",
+		Description: "Test Peer",
+		URL:         "http://test.local",
+		SoftwareID:  "DMR-Nexus",
+		PackageID:   "DMR-Nexus",
+	}
+	data, _ = rptc.Encode()
+	if _, err := conn.Write(data); err != nil {
+		return err
+	}
+
+	// Read RPTACK
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return err
+	}
+	if _, err := conn.Read(buffer); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Ensure that DMRD packets from peers that are NOT fully connected are ignored
 func TestServer_IgnoreDMRDFromNonConnectedPeer(t *testing.T) {
 	cfg := config.SystemConfig{
