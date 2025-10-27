@@ -1,140 +1,150 @@
 <template>
   <div>
     <HeaderNav />
-    <h2 class="text-xl font-medium mb-4">Overview</h2>
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <div class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700">
-        <div class="text-sm text-gray-500 dark:text-gray-400">Status</div>
-        <div class="text-2xl font-semibold mt-1" :class="app.status === 'running' ? 'text-green-600 dark:text-green-400' : 'text-gray-600 dark:text-gray-400'">
-          {{ app.status }}
-        </div>
+    
+    <div class="text-h5 q-mb-md">Overview</div>
+    
+    <div class="row q-col-gutter-md q-mb-md">
+      <div class="col-12 col-md-4">
+        <q-card>
+          <q-card-section>
+            <div class="text-caption text-grey-7">Status</div>
+            <div class="text-h6 q-mt-xs" :class="app.status === 'running' ? 'text-positive' : 'text-grey'">
+              {{ app.status }}
+            </div>
+          </q-card-section>
+        </q-card>
       </div>
-      <div class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700">
-        <div class="text-sm text-gray-500 dark:text-gray-400">Connected Peers</div>
-        <div class="text-2xl font-semibold mt-1">{{ app.peers.length }}</div>
+      
+      <div class="col-12 col-md-4">
+        <q-card>
+          <q-card-section>
+            <div class="text-caption text-grey-7">Connected Peers</div>
+            <div class="text-h6 q-mt-xs">{{ app.peers.length }}</div>
+          </q-card-section>
+        </q-card>
       </div>
-      <div class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700">
-        <div class="text-sm text-gray-500 dark:text-gray-400">Active Bridges</div>
-        <div class="text-2xl font-semibold mt-1">{{ app.bridges.length + app.dynamicBridges.length }}</div>
+      
+      <div class="col-12 col-md-4">
+        <q-card>
+          <q-card-section>
+            <div class="text-caption text-grey-7">Active Bridges</div>
+            <div class="text-h6 q-mt-xs">{{ app.bridges.length + app.dynamicBridges.length }}</div>
+          </q-card-section>
+        </q-card>
       </div>
     </div>
 
     <!-- Active Bridges Grid -->
-    <div class="mb-6">
-      <h3 class="text-lg font-medium mb-3">Active Bridges</h3>
-      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+    <div class="q-mb-md">
+      <div class="text-h6 q-mb-md">Active Bridges</div>
+      <div class="row q-col-gutter-sm">
         <div
           v-for="bridge in app.dynamicBridges"
           :key="`dynamic-${bridge.tgid}`"
-          :class="[
-            'p-4 rounded-lg shadow border transition-colors duration-200',
-            bridge.active
-              ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-700'
-              : 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700'
-          ]"
+          class="col-6 col-sm-4 col-md-3 col-lg-2"
         >
-          <div class="flex items-start justify-between">
-            <div class="flex-1">
-              <div class="text-xl font-bold text-gray-900 dark:text-gray-100">
-                {{ bridge.tgid }}
+          <q-card 
+            :class="bridge.active ? 'bg-red-1' : 'bg-green-1'"
+            bordered
+          >
+            <q-card-section class="q-pa-sm">
+              <div class="row items-start justify-between no-wrap">
+                <div class="col">
+                  <div class="text-h6 text-weight-bold">
+                    {{ bridge.tgid }}
+                  </div>
+                  <div v-if="bridge.active && bridge.active_radio_id" class="q-mt-xs">
+                    <div class="text-caption text-negative text-weight-bold">
+                      <a :href="`https://radioid.net/database/view?id=${bridge.active_radio_id}`" target="_blank" rel="noopener noreferrer" class="text-negative">
+                        {{ bridge.active_radio_id }}
+                      </a>
+                    </div>
+                    <div v-if="bridge.active_callsign" class="text-caption text-weight-medium">
+                      <a :href="`https://www.qrz.com/db/${bridge.active_callsign}`" target="_blank" rel="noopener noreferrer" class="text-dark">
+                        {{ bridge.active_callsign }}
+                      </a>
+                    </div>
+                    <div v-if="bridge.active_first_name || bridge.active_last_name" class="text-caption text-grey-7">
+                      {{ bridge.active_first_name }} {{ bridge.active_last_name }}
+                    </div>
+                    <div v-if="bridge.active_location" class="text-caption text-grey-6">
+                      {{ bridge.active_location }}
+                    </div>
+                  </div>
+                  <div class="text-caption q-mt-sm">
+                    {{ formatSubscribers(bridge.subscribers) }}
+                  </div>
+                </div>
+                <div v-if="bridge.active" class="col-auto q-ml-xs">
+                  <q-icon name="visibility" color="negative" size="20px">
+                    <q-tooltip>Active Transmission</q-tooltip>
+                  </q-icon>
+                </div>
               </div>
-              <div v-if="bridge.active && bridge.active_radio_id" class="mt-1 space-y-1">
-                <div class="text-xs text-red-600 dark:text-red-400 font-semibold">
-                  <a :href="`https://radioid.net/database/view?id=${bridge.active_radio_id}`" target="_blank" rel="noopener noreferrer" class="hover:underline">
-                    {{ bridge.active_radio_id }}
-                  </a>
-                </div>
-                <div v-if="bridge.active_callsign" class="text-xs font-medium text-gray-700 dark:text-gray-300">
-                  <a :href="`https://www.qrz.com/db/${bridge.active_callsign}`" target="_blank" rel="noopener noreferrer" class="hover:underline">
-                    {{ bridge.active_callsign }}
-                  </a>
-                </div>
-                <div v-if="bridge.active_first_name || bridge.active_last_name" class="text-xs text-gray-600 dark:text-gray-400">
-                  {{ bridge.active_first_name }} {{ bridge.active_last_name }}
-                </div>
-                <div v-if="bridge.active_location" class="text-xs text-gray-500 dark:text-gray-500">
-                  {{ bridge.active_location }}
-                </div>
-              </div>
-              <div class="text-sm text-gray-600 dark:text-gray-300 mt-2">
-                {{ formatSubscribers(bridge.subscribers) }}
-              </div>
-            </div>
-            <div v-if="bridge.active" class="flex-shrink-0 ml-2">
-              <svg class="w-5 h-5 text-red-600 dark:text-red-400 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
-                <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
-              </svg>
-            </div>
-          </div>
+            </q-card-section>
+          </q-card>
         </div>
       </div>
-      <div v-if="app.dynamicBridges.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
+      <div v-if="app.dynamicBridges.length === 0" class="text-center q-pa-lg text-grey-6">
         No active bridges
       </div>
     </div>
 
     <!-- Talk Log -->
     <div>
-      <h3 class="text-lg font-medium mb-3">Recent Transmissions</h3>
-      <div class="bg-white dark:bg-gray-800 rounded-lg shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead class="bg-gray-50 dark:bg-gray-900">
-              <tr>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Radio ID
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Callsign
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Talkgroup ID
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Timeslot
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                  Time
-                </th>
-              </tr>
-            </thead>
-            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-              <tr v-for="tx in app.transmissions" :key="tx.id" class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
-                  <a :href="`https://radioid.net/database/view?id=${tx.radio_id}`" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:underline">
-                    {{ tx.radio_id }}
-                  </a>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                  <a v-if="tx.callsign" :href="`https://www.qrz.com/db/${tx.callsign}`" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:underline">
-                    {{ tx.callsign }}
-                  </a>
-                  <span v-else class="text-gray-400 dark:text-gray-500">-</span>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                  {{ tx.talkgroup_id }}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                  TS{{ tx.timeslot }}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                  {{ formatDuration(tx.duration) }}
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-300">
-                  {{ formatTime(tx.start_time) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-if="app.transmissions.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
-          No recent transmissions
-        </div>
-      </div>
+      <div class="text-h6 q-mb-md">Recent Transmissions</div>
+      <q-card>
+        <q-table
+          :rows="app.transmissions"
+          :columns="columns"
+          row-key="id"
+          flat
+          :rows-per-page-options="[0]"
+          hide-pagination
+        >
+          <template v-slot:body-cell-radio_id="props">
+            <q-td :props="props">
+              <a :href="`https://radioid.net/database/view?id=${props.row.radio_id}`" target="_blank" rel="noopener noreferrer" class="text-primary">
+                {{ props.row.radio_id }}
+              </a>
+            </q-td>
+          </template>
+          
+          <template v-slot:body-cell-callsign="props">
+            <q-td :props="props">
+              <a v-if="props.row.callsign" :href="`https://www.qrz.com/db/${props.row.callsign}`" target="_blank" rel="noopener noreferrer" class="text-primary">
+                {{ props.row.callsign }}
+              </a>
+              <span v-else class="text-grey-5">-</span>
+            </q-td>
+          </template>
+          
+          <template v-slot:body-cell-timeslot="props">
+            <q-td :props="props">
+              TS{{ props.row.timeslot }}
+            </q-td>
+          </template>
+          
+          <template v-slot:body-cell-duration="props">
+            <q-td :props="props">
+              {{ formatDuration(props.row.duration) }}
+            </q-td>
+          </template>
+          
+          <template v-slot:body-cell-start_time="props">
+            <q-td :props="props">
+              {{ formatTime(props.row.start_time) }}
+            </q-td>
+          </template>
+          
+          <template v-slot:no-data>
+            <div class="full-width row flex-center q-gutter-sm text-grey-6 q-pa-lg">
+              <span>No recent transmissions</span>
+            </div>
+          </template>
+        </q-table>
+      </q-card>
     </div>
   </div>
 </template>
@@ -150,6 +160,52 @@ export default {
   setup() {
     const app = useAppStore()
     let refreshInterval = null
+    
+    const columns = [
+      {
+        name: 'radio_id',
+        required: true,
+        label: 'Radio ID',
+        align: 'left',
+        field: 'radio_id',
+        sortable: true
+      },
+      {
+        name: 'callsign',
+        label: 'Callsign',
+        align: 'left',
+        field: 'callsign',
+        sortable: true
+      },
+      {
+        name: 'talkgroup_id',
+        label: 'Talkgroup ID',
+        align: 'left',
+        field: 'talkgroup_id',
+        sortable: true
+      },
+      {
+        name: 'timeslot',
+        label: 'Timeslot',
+        align: 'left',
+        field: 'timeslot',
+        sortable: true
+      },
+      {
+        name: 'duration',
+        label: 'Duration',
+        align: 'left',
+        field: 'duration',
+        sortable: true
+      },
+      {
+        name: 'start_time',
+        label: 'Time',
+        align: 'left',
+        field: 'start_time',
+        sortable: true
+      }
+    ]
     
     const formatDuration = (seconds) => {
       if (seconds < 1) return '<1s'
@@ -219,7 +275,7 @@ export default {
       }
     })
     
-    return { app, formatDuration, formatTime, formatSubscribers }
+    return { app, columns, formatDuration, formatTime, formatSubscribers }
   }
 }
 </script>

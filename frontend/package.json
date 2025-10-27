@@ -9,17 +9,17 @@
     "serve": "vite preview --port 5173"
   },
   "dependencies": {
-    "vue": "^3.3.0",
-    "vue-router": "^4.2.0",
+    "@quasar/extras": "^1.17.0",
     "axios": "^1.4.0",
-    "pinia": "^3.0.3"
+    "pinia": "^3.0.3",
+    "quasar": "^2.18.5",
+    "vue": "^3.3.0",
+    "vue-router": "^4.2.0"
   },
   "devDependencies": {
-  "vite": "^7.1.12",
-  "@vitejs/plugin-vue": "^6.0.1",
-    "tailwindcss": "^4.1.16",
-    "@tailwindcss/postcss": "^4.1.16",
-    "postcss": "^8.4.47",
-    "autoprefixer": "^10.4.20"
+    "@quasar/vite-plugin": "^1.10.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "vite": "^7.1.12",
+    "vite-plugin-vue-devtools": "^8.0.3"
   }
 }
