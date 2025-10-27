@@ -17,7 +17,29 @@ export function useWS() {
         try {
           const evt = JSON.parse(ev.data)
           if (evt?.type) {
-            app.pushActivity(evt)
+            // Handle activity events
+            if (evt.type === 'peer_connected' || evt.type === 'peer_disconnected' || evt.type === 'heartbeat') {
+              app.pushActivity(evt)
+            }
+            
+            // Handle data update events
+            if (evt.type === 'status_update' && evt.data) {
+              app.status = evt.data.status || 'unknown'
+              app.version = evt.data.version || app.version
+            }
+            if (evt.type === 'peers_update' && evt.data?.peers) {
+              app.peers = Array.isArray(evt.data.peers) ? evt.data.peers : []
+            }
+            if (evt.type === 'bridges_update' && evt.data?.bridges) {
+              const bridges = evt.data.bridges
+              app.bridges = Array.isArray(bridges.static) ? bridges.static : []
+              app.dynamicBridges = Array.isArray(bridges.dynamic) ? bridges.dynamic : []
+            }
+            if (evt.type === 'transmissions_update' && evt.data?.transmissions) {
+              const tx = evt.data.transmissions
+              app.transmissions = Array.isArray(tx.transmissions) ? tx.transmissions : []
+              app.transmissionsTotal = tx.total || 0
+            }
           }
         } catch { /* ignore */}
       }

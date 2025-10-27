@@ -189,3 +189,48 @@ func (h *WebSocketHub) BroadcastPeerDisconnected(id uint32) {
 		},
 	})
 }
+
+// BroadcastStatusUpdate broadcasts a status update to all clients
+func (h *WebSocketHub) BroadcastStatusUpdate(status string, version string) {
+	h.Broadcast(Event{
+		Type:      "status_update",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"status":  status,
+			"version": version,
+		},
+	})
+}
+
+// BroadcastPeersUpdate broadcasts peer list update to all clients
+func (h *WebSocketHub) BroadcastPeersUpdate(peers interface{}) {
+	h.Broadcast(Event{
+		Type:      "peers_update",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"peers": peers,
+		},
+	})
+}
+
+// BroadcastBridgesUpdate broadcasts bridge list update to all clients
+func (h *WebSocketHub) BroadcastBridgesUpdate(bridges interface{}) {
+	h.Broadcast(Event{
+		Type:      "bridges_update",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"bridges": bridges,
+		},
+	})
+}
+
+// BroadcastTransmissionsUpdate broadcasts transmission update to all clients
+func (h *WebSocketHub) BroadcastTransmissionsUpdate(transmissions interface{}) {
+	h.Broadcast(Event{
+		Type:      "transmissions_update",
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"transmissions": transmissions,
+		},
+	})
+}

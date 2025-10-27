@@ -152,14 +152,15 @@
 <script>
 import HeaderNav from '../components/HeaderNav.vue'
 import { useAppStore } from '../stores/app'
-import { onMounted, onUnmounted } from 'vue'
+import { useWS } from '../composables/useWS'
+import { onMounted } from 'vue'
 
 export default {
   name: 'Dashboard',
   components: { HeaderNav },
   setup() {
     const app = useAppStore()
-    let refreshInterval = null
+    const { connected } = useWS() // Use WebSocket for real-time updates
     
     const columns = [
       {
@@ -264,18 +265,11 @@ export default {
     }
     
     onMounted(() => {
+      // Fetch initial data once - WebSocket will handle updates
       fetchData()
-      // Refresh every 5 seconds
-      refreshInterval = setInterval(fetchData, 5000)
     })
     
-    onUnmounted(() => {
-      if (refreshInterval) {
-        clearInterval(refreshInterval)
-      }
-    })
-    
-    return { app, columns, formatDuration, formatTime, formatSubscribers }
+    return { app, columns, connected, formatDuration, formatTime, formatSubscribers }
   }
 }
 </script>

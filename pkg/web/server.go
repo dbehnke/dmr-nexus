@@ -116,6 +116,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	// Start WebSocket hub
 	go s.hub.Run(ctx)
+	
 	// Broadcast a lightweight heartbeat periodically so the UI can test realtime plumbing
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
@@ -132,6 +133,49 @@ func (s *Server) Start(ctx context.Context) error {
 						"clients": s.hub.GetClientCount(),
 					},
 				})
+			}
+		}
+	}()
+	
+	// Broadcast data updates every 10 seconds (replaces client-side 5-second polling)
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				// Only broadcast if we have connected clients
+				if s.hub.GetClientCount() == 0 {
+					continue
+				}
+				
+				// Broadcast status update
+				if s.api != nil {
+					statusData := s.api.GetStatusData()
+					if statusData != nil {
+						s.hub.BroadcastStatusUpdate(statusData["status"].(string), statusData["version"].(string))
+					}
+					
+					// Broadcast peers update
+					peersData := s.api.GetPeersData()
+					if peersData != nil {
+						s.hub.BroadcastPeersUpdate(peersData)
+					}
+					
+					// Broadcast bridges update
+					bridgesData := s.api.GetBridgesData()
+					if bridgesData != nil {
+						s.hub.BroadcastBridgesUpdate(bridgesData)
+					}
+					
+					// Broadcast transmissions update
+					txData := s.api.GetTransmissionsData(1, 50)
+					if txData != nil {
+						s.hub.BroadcastTransmissionsUpdate(txData)
+					}
+				}
 			}
 		}
 	}()
