@@ -25,9 +25,11 @@ func TestPutYSF_ExtractionOffsets(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		encA := ysf.Encode24128(datAs[i])
-		encB := ysf.Encode23127(datBs[i]) >> 1
+		// For DMR->YSF direction, B in the DMR frame is stored as encB ^ (prng>>1)
+		// ambeToYSF expects that and will XOR with (prng>>1) internally to recover encB
+		encB := ysf.Encode23127(datBs[i])
 		pRNG := prngTable[datAs[i]] >> 1
-		bIn := encB ^ pRNG
+		bIn := (encB >> 0) ^ pRNG
 		v := ambeToYSF(encA, bIn, datCs[i])
 		copy(payload[positions[i]:positions[i]+13], v)
 	}
@@ -51,12 +53,13 @@ func TestPutYSF_ExtractionOffsets(t *testing.T) {
 		// Compute expected encoded values per PutYSF pipeline
 		// Note: YSF carries only the upper 12 bits derived from encoded A/B
 		encA := ysf.Encode24128(datAs[i])
-		encB := ysf.Encode23127(datBs[i]) >> 1
+		encB := ysf.Encode23127(datBs[i])
 		txA12 := (encA >> 12) & 0xFFF
 		txB12 := (encB >> 11) & 0xFFF
-		pRNG := prngTable[datAs[i]] >> 1
+		// In YSF->DMR direction, the converter applies PRNG without shifting
+		pRNG := prngTable[datAs[i]]
 		expA := ysf.Encode24128(txA12)
-		expB := (ysf.Encode23127(txB12) >> 1) ^ pRNG
+		expB := (ysf.Encode23127(txB12) ^ pRNG) & 0x7FFFFF
 		expC := datCs[i]
 
 		if a != expA {

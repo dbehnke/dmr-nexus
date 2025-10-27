@@ -66,6 +66,9 @@ type Converter struct {
 	dmrDstID    uint32
 	dmrFLCO     uint8 // FLCO value
 
+	// Embedded LC encoder - created once per stream
+	embeddedEncoder *protocol.EmbeddedLCEncoder
+
 	// Feature toggles
 	embeddedEnabled bool
 
@@ -117,6 +120,7 @@ func (c *Converter) SetEmbeddedEnabled(enabled bool) {
 }
 
 // SetDMRStreamMetadata sets the stream metadata for DMR sync/embedded signalling
+// and initializes the embedded LC encoder for the new stream
 func (c *Converter) SetDMRStreamMetadata(timeslot int, srcID, dstID uint32, flco uint8) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -124,6 +128,11 @@ func (c *Converter) SetDMRStreamMetadata(timeslot int, srcID, dstID uint32, flco
 	c.dmrSrcID = srcID
 	c.dmrDstID = dstID
 	c.dmrFLCO = flco
+
+	// Create embedded LC encoder for this stream
+	if c.embeddedEnabled {
+		c.embeddedEncoder = protocol.NewEmbeddedLCEncoder(srcID, dstID, protocol.FLCO(flco))
+	}
 }
 
 // PutDMR adds a DMR voice frame for conversion to YSF
@@ -512,11 +521,11 @@ func (c *Converter) GetDMR(frame []byte) uint {
 	if voiceSeq == 0 {
 		// Insert voice sync pattern for this timeslot
 		protocol.InsertVoiceSync(frame, c.dmrTimeslot)
-	} else {
-		// Insert embedded LC signalling (can be disabled via env or setter)
-		if c.embeddedEnabled {
-			protocol.InsertEmbeddedLC(frame, c.dmrSrcID, c.dmrDstID, protocol.FLCO(c.dmrFLCO), voiceSeq-1)
-		}
+	} else if c.embeddedEnabled && c.embeddedEncoder != nil {
+		// Insert embedded LC fragment for frames B-F (voiceSeq 1-5)
+		// The encoder expects fragment indices 0-4 for frames B-F
+		fragment, lcss := c.embeddedEncoder.GetFragment(voiceSeq - 1)
+		protocol.InsertEmbeddedFragment(frame, fragment, lcss)
 	}
 
 	// Debug: log first few full 33-byte DMR payloads
