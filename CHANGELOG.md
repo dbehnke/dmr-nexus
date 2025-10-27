@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/dbehnke/dmr-nexus/compare/v0.4.0...v0.5.0) (2025-10-27)
+
+
+### Features
+
+* **frontend:** Replace Tailwind CSS v4 with Quasar Framework + Enable SQLite WAL Mode and WebSocket Push Updates ([#64](https://github.com/dbehnke/dmr-nexus/issues/64)) ([cad3b51](https://github.com/dbehnke/dmr-nexus/commit/cad3b511176f084f3b02b4980bdad742109a7487))
+
 ## [0.4.0](https://github.com/dbehnke/dmr-nexus/compare/v0.3.0...v0.4.0) (2025-10-27)
 
 
