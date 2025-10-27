@@ -94,6 +94,9 @@ systems:
     port: 62031
     passphrase: "changeme"
     max_peers: 50
+    # Cooldown (seconds) between MSTNAK replies to the same peer:addr
+    # Default: 15
+    mst_nak_cooldown: 15
 
   REPEATER-1:
     mode: PEER
@@ -111,6 +114,8 @@ systems:
     target_port: 62031
     network_id: 3129999
     passphrase: "password"
+
+Note: Each system may include an optional `mst_nak_cooldown` setting (seconds) which controls the minimum time between MSTNAK negative-ack replies sent to the same peer:address. The default value is 15 seconds.
 
 bridges:
   NATIONWIDE:
@@ -385,6 +390,7 @@ See [MIGRATION.md](docs/MIGRATION.md) for detailed migration guide.
 - **[CONFIG.md](docs/CONFIG.md)**: Configuration reference
 - **[API.md](docs/API.md)**: REST API documentation
 - **[MIGRATION.md](docs/MIGRATION.md)**: Migration from hblink3
+- **[RELEASE_PLEASE_SETUP.md](docs/RELEASE_PLEASE_SETUP.md)**: Release automation setup (for maintainers)
 
 ## Contributing
 

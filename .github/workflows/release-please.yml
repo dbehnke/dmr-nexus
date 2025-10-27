@@ -1,0 +1,73 @@
+name: Release Please
+
+# IMPORTANT: This workflow requires the following repository setting to be enabled:
+# Settings > Actions > General > Workflow permissions
+# ✓ "Allow GitHub Actions to create and approve pull requests"
+#
+# Without this setting enabled, the workflow will fail with:
+# "GitHub Actions is not permitted to create or approve pull requests"
+#
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: .release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Checkout code if a release was created
+      - name: Checkout
+        if: ${{ steps.release.outputs.releases_created }}
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        if: ${{ steps.release.outputs.releases_created }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.3'
+
+      - name: Set up Node.js
+        if: ${{ steps.release.outputs.releases_created }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Cache Node modules
+        if: ${{ steps.release.outputs.releases_created }}
+        uses: actions/cache@v4
+        with:
+          path: frontend/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install frontend dependencies
+        if: ${{ steps.release.outputs.releases_created }}
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run GoReleaser
+        if: ${{ steps.release.outputs.releases_created }}
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

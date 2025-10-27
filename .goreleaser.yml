@@ -1,0 +1,98 @@
+# GoReleaser configuration for DMR-Nexus
+# This configuration builds multi-platform binaries with embedded frontend assets
+
+version: 2
+
+before:
+  hooks:
+    # Build frontend assets before creating releases
+    - make frontend prepare-frontend-embed
+
+builds:
+  - id: dmr-nexus
+    main: ./cmd/dmr-nexus
+    binary: dmr-nexus
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      # Skip ARM builds on macOS and Windows
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.gitCommit={{.ShortCommit}}
+      - -X main.buildTime={{.Date}}
+    tags:
+      - embed
+
+archives:
+  - id: dmr-nexus
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE
+      - README.md
+      - configs/dmr-nexus.sample.yaml
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - '^chore:'
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: dbehnke
+    name: dmr-nexus
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## DMR-Nexus {{ .Tag }}
+
+    Release {{ .Tag }} - {{ .Date }}
+  footer: |
+    ## Installation
+
+    Download the appropriate archive for your platform, extract it,
+    and run the binary.
+
+    For configuration, see the included sample config file or visit
+    the [documentation](https://github.com/dbehnke/dmr-nexus).

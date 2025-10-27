@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/dbehnke/dmr-nexus/pkg/bridge"
@@ -32,6 +33,51 @@ func NewAPI(log *logger.Logger) *API {
 	return &API{
 		logger: log,
 	}
+}
+
+// maskIPAddress masks the last two octets of an IPv4 address for privacy.
+// Examples:
+//   - "162.1.2.3:8080" -> "162.1.*.*:8080"
+//   - "192.168.1.1" -> "192.168.*.*"
+//   - "[::1]:8080" -> "[::1]:8080" (IPv6 addresses are not masked)
+func maskIPAddress(addr string) string {
+	// Handle empty address
+	if addr == "" {
+		return addr
+	}
+
+	// Split host and port if present
+	var host, port string
+	if idx := strings.LastIndex(addr, ":"); idx != -1 {
+		// Check if this is IPv6 (contains multiple colons)
+		if strings.Count(addr, ":") > 1 && !strings.HasPrefix(addr, "[") {
+			// IPv6 without brackets - return as is
+			return addr
+		}
+		host = addr[:idx]
+		port = addr[idx:]
+	} else {
+		host = addr
+	}
+
+	// Remove brackets for IPv6
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		// IPv6 address - return as is
+		return addr
+	}
+
+	// Split IPv4 address by dots
+	parts := strings.Split(host, ".")
+	if len(parts) != 4 {
+		// Not a standard IPv4 address, return as is
+		return addr
+	}
+
+	// Mask the last two octets
+	parts[2] = "*"
+	parts[3] = "*"
+
+	return strings.Join(parts, ".") + port
 }
 
 // SetDeps provides runtime dependencies to the API after construction
@@ -166,7 +212,7 @@ func (a *API) HandlePeers(w http.ResponseWriter, r *http.Request) {
 		list = append(list, PeerDTO{
 			ID:          snap.ID,
 			Callsign:    snap.Callsign,
-			Address:     snap.Address,
+			Address:     maskIPAddress(snap.Address),
 			State:       snap.State,
 			Location:    snap.Location,
 			ConnectedAt: snap.ConnectedAt.Unix(),

@@ -95,6 +95,8 @@ type SystemConfig struct {
 	TG1ACL        string `mapstructure:"tg1_acl"`
 	TG2ACL        string `mapstructure:"tg2_acl"`
 	TGACL         string `mapstructure:"tg_acl"` // For OPENBRIDGE
+	// MSTNAK behavior: cooldown in seconds between MSTNAK replies to the same peer:addr
+	MstNakCooldown int `mapstructure:"mst_nak_cooldown"`
 }
 
 // BridgeRule represents a conference bridge routing rule
@@ -181,6 +183,16 @@ func Load(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
+	// Apply system-level defaults for any systems that didn't set them explicitly.
+	// This uses the viper-provided default `system_defaults.mst_nak_cooldown`.
+	defaultMstNak := viper.GetInt("system_defaults.mst_nak_cooldown")
+	for name, sys := range config.Systems {
+		if sys.MstNakCooldown == 0 {
+			sys.MstNakCooldown = defaultMstNak
+			config.Systems[name] = sys
+		}
+	}
+
 	// Validate configuration
 	if err := validate(&config); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
@@ -230,4 +242,11 @@ func setDefaults() {
 	viper.SetDefault("metrics.prometheus.enabled", true)
 	viper.SetDefault("metrics.prometheus.port", 9090)
 	viper.SetDefault("metrics.prometheus.path", "/metrics")
+
+	// System-level defaults
+	// Default cooldown (seconds) between MSTNAK replies to the same peer:addr
+	// Stored under `system_defaults` so it doesn't conflict with the dynamic
+	// `systems` map structure. Individual systems without an explicit
+	// `mst_nak_cooldown` will inherit this value during Load().
+	viper.SetDefault("system_defaults.mst_nak_cooldown", 15)
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/dbehnke/dmr-nexus/pkg/config"
 	"github.com/dbehnke/dmr-nexus/pkg/logger"
+	"github.com/dbehnke/dmr-nexus/pkg/peer"
 	"github.com/dbehnke/dmr-nexus/pkg/protocol"
 )
 
@@ -601,6 +602,306 @@ func TestServer_HandleRPTPING_SendsMSTPONG(t *testing.T) {
 	}
 }
 
+func TestServer_HandleRPTPING_UnknownPeer_CooldownBehavior(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+
+	// Bind server UDP socket
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	// Use an unknown peer ID (not registered)
+	peerID := uint32(999999)
+
+	// Craft an RPTPING packet
+	ping := make([]byte, protocol.RPTPINGPacketSize)
+	copy(ping[0:7], protocol.PacketTypeRPTPING)
+	binary.BigEndian.PutUint32(ping[7:11], peerID)
+
+	// First RPTPING from unknown peer should get MSTNAK
+	if err := senderConn.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	// Expect MSTNAK back
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("sender ReadFromUDP error (first MSTNAK): %v", err)
+	}
+	if n < protocol.MSTNAKPacketSize {
+		t.Fatalf("MSTNAK too small: %d", n)
+	}
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK, got %q", string(buf[0:n]))
+	}
+	gotID := binary.BigEndian.Uint32(buf[6:10])
+	if gotID != peerID {
+		t.Fatalf("MSTNAK peer id mismatch: got %d want %d", gotID, peerID)
+	}
+
+	// Second RPTPING from same unknown peer should be silently ignored (no response)
+	if err := senderConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	// Should timeout (no response)
+	_, _, err = senderConn.ReadFromUDP(buf)
+	if err == nil {
+		t.Fatal("Expected timeout (no response), but got a response")
+	}
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Expected timeout error, got: %v", err)
+	}
+
+	// Third RPTPING should also be ignored
+	if err := senderConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	_, _, err = senderConn.ReadFromUDP(buf)
+	if err == nil {
+		t.Fatal("Expected timeout (no response), but got a response")
+	}
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Expected timeout error, got: %v", err)
+	}
+}
+
+// DMRD from unknown peer should get MSTNAK once, then be ignored during cooldown
+func TestServer_HandleDMRD_UnknownPeer_CooldownBehavior(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+
+	// Bind server UDP socket
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (unknown peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	peerID := uint32(999888)
+
+	// Prepare a DMRD packet with RepeaterID set to peerID
+	dmrd := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      3120001,
+		DestinationID: 3100,
+		RepeaterID:    peerID,
+		Timeslot:      1,
+		CallType:      0,
+		StreamID:      12345,
+		Payload:       make([]byte, 33),
+	}
+	data, err := dmrd.Encode()
+	if err != nil {
+		t.Fatalf("Encode DMRD error: %v", err)
+	}
+
+	// First DMRD - expect MSTNAK
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("sender ReadFromUDP error (first MSTNAK): %v", err)
+	}
+	if n < protocol.MSTNAKPacketSize {
+		t.Fatalf("MSTNAK too small: %d", n)
+	}
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK, got %q", string(buf[0:n]))
+	}
+	gotID := binary.BigEndian.Uint32(buf[6:10])
+	if gotID != peerID {
+		t.Fatalf("MSTNAK peer id mismatch: got %d want %d", gotID, peerID)
+	}
+
+	// Second DMRD immediately - should be silently ignored (no response)
+	if err := senderConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+
+	_, _, err = senderConn.ReadFromUDP(buf)
+	if err == nil {
+		t.Fatal("Expected timeout (no response), but got a response")
+	}
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Expected timeout error, got: %v", err)
+	}
+}
+
+func TestServer_HandleDMRD_UnknownPeer_CooldownExpires(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+	// shorten cooldown for test
+	srv.mstNakCooldown = 100 * time.Millisecond
+
+	// Bind server UDP socket
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (unknown peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	peerID := uint32(777666)
+
+	// Prepare a DMRD packet with RepeaterID set to peerID
+	dmrd := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      3120001,
+		DestinationID: 3100,
+		RepeaterID:    peerID,
+		Timeslot:      1,
+		CallType:      0,
+		StreamID:      12345,
+		Payload:       make([]byte, 33),
+	}
+	data, err := dmrd.Encode()
+	if err != nil {
+		t.Fatalf("Encode DMRD error: %v", err)
+	}
+
+	// First DMRD - should get MSTNAK
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("sender ReadFromUDP error (first MSTNAK): %v", err)
+	}
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK, got %q", string(buf[0:n]))
+	}
+
+	// Second DMRD immediately - should be ignored
+	if err := senderConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+	_, _, err = senderConn.ReadFromUDP(buf)
+	if err == nil {
+		t.Fatal("Expected timeout (no response), but got a response")
+	}
+
+	// Wait for cooldown to expire
+	time.Sleep(150 * time.Millisecond)
+
+	// After cooldown, another DMRD should get MSTNAK again
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+	n, _, err = senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("sender ReadFromUDP error (MSTNAK after cooldown): %v", err)
+	}
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK after cooldown, got %q", string(buf[0:n]))
+	}
+}
+
+func TestServer_HandleRPTPING_UnknownPeer_CooldownExpires(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+	// Use a shorter cooldown for testing
+	srv.mstNakCooldown = 100 * time.Millisecond
+
+	// Bind server UDP socket
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	peerID := uint32(888888)
+
+	// Craft an RPTPING packet
+	ping := make([]byte, protocol.RPTPINGPacketSize)
+	copy(ping[0:7], protocol.PacketTypeRPTPING)
+	binary.BigEndian.PutUint32(ping[7:11], peerID)
+
+	// First RPTPING - should get MSTNAK
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("Expected MSTNAK: %v", err)
+	}
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK, got %q", string(buf[0:n]))
+	}
+
+	// Wait for cooldown to expire
+	time.Sleep(150 * time.Millisecond)
+
+	// RPTPING after cooldown expires - should get MSTNAK again
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleRPTPING(ping, senderConn.LocalAddr().(*net.UDPAddr))
+
+	n, _, err = senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("Expected MSTNAK after cooldown: %v", err)
+	}
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK after cooldown, got %q", string(buf[0:n]))
+	}
+}
+
 func TestStreamMuteFirstTransmission_AAA(t *testing.T) {
 	// Arrange
 	cfg := config.SystemConfig{
@@ -1130,4 +1431,160 @@ func connectPeer(conn *net.UDPConn, peerID uint32, callsign string) error {
 	}
 
 	return nil
+// Ensure that DMRD packets from peers that are NOT fully connected are ignored
+func TestServer_IgnoreDMRDFromNonConnectedPeer(t *testing.T) {
+	cfg := config.SystemConfig{
+		Mode: "MASTER",
+	}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+
+	// Create a sender socket to represent the peer's address
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	// Bind a server UDP socket so MSTNAK/MSTPONG can be sent in tests
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("server ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Add peer to manager but DO NOT mark as connected (leave as disconnected / partial state)
+	peerID := uint32(312000)
+	p := srv.peerManager.AddPeer(peerID, senderConn.LocalAddr().(*net.UDPAddr))
+
+	// Sanity: ensure peer is not connected
+	if p.GetState() == peer.StateConnected {
+		t.Fatalf("test setup: peer should not be connected")
+	}
+
+	// Prepare a DMRD packet coming from this peer
+	dmrd := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      3120001,
+		DestinationID: 3100,
+		RepeaterID:    peerID,
+		Timeslot:      1,
+		CallType:      0,
+		StreamID:      12345,
+		Payload:       make([]byte, 33),
+	}
+	data, err := dmrd.Encode()
+	if err != nil {
+		t.Fatalf("Encode DMRD error: %v", err)
+	}
+
+	// Pre-conditions: counters should be zero and LastHeard zero
+	if p.PacketsReceived != 0 || p.BytesReceived != 0 || !p.GetLastHeard().IsZero() {
+		t.Fatalf("precondition failed: peer counters/last-heard not zero")
+	}
+
+	// Call handler as if packet was received from the sender address
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+
+	// Post-condition: since peer is not connected, stats and last-heard should be unchanged
+	if p.PacketsReceived != 0 {
+		t.Fatalf("expected 0 PacketsReceived, got %d", p.PacketsReceived)
+	}
+	if p.BytesReceived != 0 {
+		t.Fatalf("expected 0 BytesReceived, got %d", p.BytesReceived)
+	}
+	if !p.GetLastHeard().IsZero() {
+		t.Fatalf("expected LastHeard to be zero/time zero, got %v", p.GetLastHeard())
+	}
+}
+
+// Known but non-connected peer should receive MSTNAK on DMRD and be tracked in rejectedPeers
+func TestServer_HandleDMRD_KnownNonConnectedPeer_ReceivesMSTNAK(t *testing.T) {
+	cfg := config.SystemConfig{Mode: "MASTER"}
+	log := logger.New(logger.Config{Level: "info"})
+	srv := NewServer(cfg, "test-system", log)
+
+	// Bind server UDP socket so sendMSTNAK can write
+	serverConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP error: %v", err)
+	}
+	srv.conn = serverConn
+	defer func() { _ = serverConn.Close() }()
+
+	// Sender socket (peer)
+	senderConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("sender ListenUDP error: %v", err)
+	}
+	defer func() { _ = senderConn.Close() }()
+
+	peerID := uint32(555111)
+
+	// Add peer to manager but DO NOT mark connected
+	p := srv.peerManager.AddPeer(peerID, senderConn.LocalAddr().(*net.UDPAddr))
+	if p.GetState() == peer.StateConnected {
+		t.Fatalf("test setup: peer should not be connected")
+	}
+
+	// Prepare DMRD packet
+	dmrd := &protocol.DMRDPacket{
+		Sequence:      1,
+		SourceID:      3120001,
+		DestinationID: 3100,
+		RepeaterID:    peerID,
+		Timeslot:      1,
+		CallType:      0,
+		StreamID:      12345,
+		Payload:       make([]byte, 33),
+	}
+	data, err := dmrd.Encode()
+	if err != nil {
+		t.Fatalf("Encode DMRD error: %v", err)
+	}
+
+	// First DMRD - expect MSTNAK
+	if err := senderConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+
+	buf := make([]byte, 64)
+	n, _, err := senderConn.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("sender ReadFromUDP error (first MSTNAK): %v", err)
+	}
+	if n < protocol.MSTNAKPacketSize {
+		t.Fatalf("MSTNAK too small: %d", n)
+	}
+	if string(buf[0:6]) != protocol.PacketTypeMSTNAK {
+		t.Fatalf("expected MSTNAK, got %q", string(buf[0:n]))
+	}
+	gotID := binary.BigEndian.Uint32(buf[6:10])
+	if gotID != peerID {
+		t.Fatalf("MSTNAK peer id mismatch: got %d want %d", gotID, peerID)
+	}
+
+	// Verify rejectedPeers recorded entry
+	key := peerKey(peerID, senderConn.LocalAddr().(*net.UDPAddr))
+	srv.rejectedPeersMu.Lock()
+	_, exists := srv.rejectedPeers[key]
+	srv.rejectedPeersMu.Unlock()
+	if !exists {
+		t.Fatalf("expected rejectedPeers to contain key %s", key)
+	}
+
+	// Second DMRD immediately should be ignored (no response)
+	if err := senderConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline error: %v", err)
+	}
+	srv.handleDMRD(data, senderConn.LocalAddr().(*net.UDPAddr))
+	_, _, err = senderConn.ReadFromUDP(buf)
+	if err == nil {
+		t.Fatal("Expected timeout (no response), but got a response")
+	}
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("Expected timeout error, got: %v", err)
+	}
 }
