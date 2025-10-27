@@ -47,29 +47,33 @@
           <q-card 
             :style="bridge.active ? 'background-color: rgba(244, 67, 54, 0.15)' : 'background-color: rgba(76, 175, 80, 0.15)'"
             bordered
+            class="full-height"
           >
-            <q-card-section class="q-pa-sm">
+            <q-card-section class="q-pa-sm full-height">
               <div class="row items-start justify-between no-wrap">
                 <div class="col">
                   <div class="text-h6 text-weight-bold">
                     {{ bridge.tgid }}
                   </div>
-                  <div v-if="bridge.active && bridge.active_radio_id" class="q-mt-xs">
-                    <div class="text-caption text-negative text-weight-bold">
-                      <a :href="`https://radioid.net/database/view?id=${bridge.active_radio_id}`" target="_blank" rel="noopener noreferrer" class="text-negative">
-                        {{ bridge.active_radio_id }}
-                      </a>
-                    </div>
-                    <div v-if="bridge.active_callsign" class="text-caption text-weight-medium">
-                      <a :href="`https://www.qrz.com/db/${bridge.active_callsign}`" target="_blank" rel="noopener noreferrer">
-                        {{ bridge.active_callsign }}
-                      </a>
-                    </div>
-                    <div v-if="bridge.active_first_name || bridge.active_last_name" class="text-caption text-grey-7">
-                      {{ bridge.active_first_name }} {{ bridge.active_last_name }}
-                    </div>
-                    <div v-if="bridge.active_location" class="text-caption text-grey-6">
-                      {{ bridge.active_location }}
+                  <!-- Always reserve space for transmission info to keep uniform card size -->
+                  <div class="q-mt-xs" style="min-height: 60px">
+                    <div v-show="bridge.active && bridge.active_radio_id">
+                      <div class="text-caption text-weight-bold" :class="bridge.active ? 'text-red-9' : ''">
+                        <a :href="`https://radioid.net/database/view?id=${bridge.active_radio_id}`" target="_blank" rel="noopener noreferrer" class="text-red-9">
+                          {{ bridge.active_radio_id }}
+                        </a>
+                      </div>
+                      <div v-if="bridge.active_callsign" class="text-caption text-weight-medium">
+                        <a :href="`https://www.qrz.com/db/${bridge.active_callsign}`" target="_blank" rel="noopener noreferrer" class="text-primary">
+                          {{ bridge.active_callsign }}
+                        </a>
+                      </div>
+                      <div v-if="bridge.active_first_name || bridge.active_last_name" class="text-caption">
+                        {{ bridge.active_first_name }} {{ bridge.active_last_name }}
+                      </div>
+                      <div v-if="bridge.active_location" class="text-caption text-grey">
+                        {{ bridge.active_location }}
+                      </div>
                     </div>
                   </div>
                   <div class="text-caption q-mt-sm">
