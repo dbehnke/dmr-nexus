@@ -31,25 +31,25 @@ jobs:
 
       # Checkout code if a release was created
       - name: Checkout
-        if: ${{ steps.release.outputs.releases_created }}
+        if: steps.release.outputs.releases_created == 'true'
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        if: ${{ steps.release.outputs.releases_created }}
+        if: steps.release.outputs.releases_created == 'true'
         uses: actions/setup-go@v6
         with:
           go-version: '1.25.3'
 
       - name: Set up Node.js
-        if: ${{ steps.release.outputs.releases_created }}
+        if: steps.release.outputs.releases_created == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: '20'
 
       - name: Cache Node modules
-        if: ${{ steps.release.outputs.releases_created }}
+        if: steps.release.outputs.releases_created == 'true'
         uses: actions/cache@v4
         with:
           path: frontend/node_modules
@@ -58,12 +58,12 @@ jobs:
             ${{ runner.os }}-node-
 
       - name: Install frontend dependencies
-        if: ${{ steps.release.outputs.releases_created }}
+        if: steps.release.outputs.releases_created == 'true'
         working-directory: ./frontend
         run: npm ci
 
       - name: Run GoReleaser
-        if: ${{ steps.release.outputs.releases_created }}
+        if: steps.release.outputs.releases_created == 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
