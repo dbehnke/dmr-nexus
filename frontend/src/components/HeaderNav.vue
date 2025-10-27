@@ -1,45 +1,40 @@
 <template>
-  <nav class="flex gap-4 border-b border-gray-200 dark:border-gray-700 mb-4">
-    <router-link 
-      class="py-2 px-3 rounded-t transition-colors hover:bg-gray-100 dark:hover:bg-gray-800" 
-      active-class="border-b-2 border-blue-500 dark:border-blue-400 font-medium"
-      to="/"
-    >
-      Dashboard
-    </router-link>
-    <router-link 
-      class="py-2 px-3 rounded-t transition-colors hover:bg-gray-100 dark:hover:bg-gray-800" 
-      active-class="border-b-2 border-blue-500 dark:border-blue-400 font-medium"
-      to="/peers"
-    >
-      Peers
-    </router-link>
-    <router-link 
-      class="py-2 px-3 rounded-t transition-colors hover:bg-gray-100 dark:hover:bg-gray-800" 
-      active-class="border-b-2 border-blue-500 dark:border-blue-400 font-medium"
-      to="/bridges"
-    >
-      Bridges
-    </router-link>
-    <router-link 
-      class="py-2 px-3 rounded-t transition-colors hover:bg-gray-100 dark:hover:bg-gray-800" 
-      active-class="border-b-2 border-blue-500 dark:border-blue-400 font-medium"
-      to="/activity"
-    >
-      Activity
-    </router-link>
-    <router-link 
-      class="py-2 px-3 rounded-t transition-colors hover:bg-gray-100 dark:hover:bg-gray-800" 
-      active-class="border-b-2 border-blue-500 dark:border-blue-400 font-medium"
-      to="/settings"
-    >
-      Settings
-    </router-link>
-  </nav>
+  <q-tabs
+    v-model="tab"
+    dense
+    class="text-grey-7 q-mb-md"
+    active-color="primary"
+    indicator-color="primary"
+    align="left"
+  >
+    <q-route-tab name="dashboard" to="/" label="Dashboard" />
+    <q-route-tab name="peers" to="/peers" label="Peers" />
+    <q-route-tab name="bridges" to="/bridges" label="Bridges" />
+    <q-route-tab name="activity" to="/activity" label="Activity" />
+    <q-route-tab name="settings" to="/settings" label="Settings" />
+  </q-tabs>
 </template>
 
 <script>
+import { ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+
 export default {
-  name: 'HeaderNav'
+  name: 'HeaderNav',
+  setup() {
+    const route = useRoute()
+    const tab = ref('dashboard')
+    
+    // Update tab based on current route
+    watch(() => route.path, (newPath) => {
+      if (newPath === '/') tab.value = 'dashboard'
+      else if (newPath.startsWith('/peers')) tab.value = 'peers'
+      else if (newPath.startsWith('/bridges')) tab.value = 'bridges'
+      else if (newPath.startsWith('/activity')) tab.value = 'activity'
+      else if (newPath.startsWith('/settings')) tab.value = 'settings'
+    }, { immediate: true })
+    
+    return { tab }
+  }
 }
 </script>

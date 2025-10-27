@@ -1,56 +1,28 @@
 <template>
   <div>
     <HeaderNav />
-    <h2 class="text-xl font-medium mb-4">Settings</h2>
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow border border-gray-200 dark:border-gray-700">
-      <div class="mb-6">
-        <h3 class="text-lg font-medium mb-4">Appearance</h3>
-        <div class="space-y-3">
-          <label class="flex items-center gap-3 cursor-pointer">
-            <input 
-              type="radio" 
-              name="theme" 
-              value="system" 
-              :checked="store.theme === 'system'"
-              @change="store.setTheme('system')"
-              class="w-4 h-4"
-            />
+    
+    <div class="text-h5 q-mb-md">Settings</div>
+    
+    <q-card>
+      <q-card-section>
+        <div class="text-h6 q-mb-md">Appearance</div>
+        
+        <q-option-group
+          v-model="store.theme"
+          :options="themeOptions"
+          color="primary"
+          @update:model-value="store.setTheme"
+        >
+          <template v-slot:label="opt">
             <div>
-              <div class="font-medium">System</div>
-              <div class="text-sm text-gray-500 dark:text-gray-400">Use system preference</div>
+              <div class="text-weight-medium">{{ opt.label }}</div>
+              <div class="text-caption text-grey-6">{{ opt.caption }}</div>
             </div>
-          </label>
-          <label class="flex items-center gap-3 cursor-pointer">
-            <input 
-              type="radio" 
-              name="theme" 
-              value="light" 
-              :checked="store.theme === 'light'"
-              @change="store.setTheme('light')"
-              class="w-4 h-4"
-            />
-            <div>
-              <div class="font-medium">Light</div>
-              <div class="text-sm text-gray-500 dark:text-gray-400">Always use light mode</div>
-            </div>
-          </label>
-          <label class="flex items-center gap-3 cursor-pointer">
-            <input 
-              type="radio" 
-              name="theme" 
-              value="dark" 
-              :checked="store.theme === 'dark'"
-              @change="store.setTheme('dark')"
-              class="w-4 h-4"
-            />
-            <div>
-              <div class="font-medium">Dark</div>
-              <div class="text-sm text-gray-500 dark:text-gray-400">Always use dark mode</div>
-            </div>
-          </label>
-        </div>
-      </div>
-    </div>
+          </template>
+        </q-option-group>
+      </q-card-section>
+    </q-card>
   </div>
 </template>
 
@@ -63,7 +35,26 @@ export default {
   components: { HeaderNav },
   setup() {
     const store = useAppStore()
-    return { store }
+    
+    const themeOptions = [
+      { 
+        label: 'System', 
+        value: 'system',
+        caption: 'Use system preference'
+      },
+      { 
+        label: 'Light', 
+        value: 'light',
+        caption: 'Always use light mode'
+      },
+      { 
+        label: 'Dark', 
+        value: 'dark',
+        caption: 'Always use dark mode'
+      }
+    ]
+    
+    return { store, themeOptions }
   }
 }
 </script>

@@ -504,3 +504,180 @@ func (a *API) HandleUserLookup(w http.ResponseWriter, r *http.Request) {
 		a.logger.Error("Failed to encode user response", logger.Error(err))
 	}
 }
+
+// GetStatusData returns status data for WebSocket broadcasting
+func (a *API) GetStatusData() map[string]interface{} {
+	versionStr, _, _ := GetVersionInfo()
+	return map[string]interface{}{
+		"status":  "running",
+		"version": versionStr,
+	}
+}
+
+// GetPeersData returns peers data for WebSocket broadcasting
+func (a *API) GetPeersData() []PeerDTO {
+	if a.peers == nil {
+		return []PeerDTO{}
+	}
+	
+	list := make([]PeerDTO, 0)
+	for _, p := range a.peers.GetAllPeers() {
+		snap := p.Snapshot(true)
+		list = append(list, PeerDTO{
+			ID:          snap.ID,
+			Callsign:    snap.Callsign,
+			Address:     maskIPAddress(snap.Address),
+			State:       snap.State,
+			Location:    snap.Location,
+			ConnectedAt: snap.ConnectedAt.Unix(),
+			LastHeard:   snap.LastHeard.Unix(),
+			PacketsRx:   snap.PacketsRx,
+			BytesRx:     snap.BytesRx,
+			PacketsTx:   snap.PacketsTx,
+			BytesTx:     snap.BytesTx,
+			TS1:         snap.Subscriptions.TS1,
+			TS2:         snap.Subscriptions.TS2,
+		})
+	}
+	return list
+}
+
+// GetBridgesData returns bridges data for WebSocket broadcasting
+func (a *API) GetBridgesData() map[string]interface{} {
+	response := map[string]interface{}{
+		"static":  []BridgeDTO{},
+		"dynamic": []DynamicBridgeDTO{},
+	}
+	
+	if a.router == nil {
+		return response
+	}
+	
+	// Build DTOs from static router bridges using snapshots
+	staticBridges := make([]BridgeDTO, 0)
+	for _, br := range a.router.GetActiveBridges() {
+		snap := br.Snapshot()
+		dto := BridgeDTO{Name: snap.Name, Rules: make([]BridgeRuleDTO, 0, len(snap.Rules))}
+		for _, rs := range snap.Rules {
+			dto.Rules = append(dto.Rules, BridgeRuleDTO{
+				System:   rs.System,
+				TGID:     rs.TGID,
+				Timeslot: rs.Timeslot,
+				Active:   rs.Active,
+			})
+		}
+		staticBridges = append(staticBridges, dto)
+	}
+	response["static"] = staticBridges
+	
+	// Build DTOs from dynamic bridges
+	dynamicBridges := make([]DynamicBridgeDTO, 0)
+	for _, db := range a.router.GetAllDynamicBridges() {
+		// Derive subscribers from current peer subscriptions
+		subscribers := make([]SubscriberInfo, 0)
+		if a.peers != nil {
+			for _, p := range a.peers.GetAllPeers() {
+				if p.GetState().String() != "connected" {
+					continue
+				}
+				if p.Subscriptions == nil {
+					continue
+				}
+				
+				// Check if subscribed on TS1, TS2, or both
+				ts1 := p.Subscriptions.IsSubscribed(db.TGID, 1)
+				ts2 := p.Subscriptions.IsSubscribed(db.TGID, 2)
+				
+				if ts1 || ts2 {
+					timeslot := 0
+					if ts1 && ts2 {
+						timeslot = 3 // Both timeslots
+					} else if ts1 {
+						timeslot = 1 // TS1 only
+					} else {
+						timeslot = 2 // TS2 only
+					}
+					
+					subscribers = append(subscribers, SubscriberInfo{
+						PeerID:   p.ID,
+						Timeslot: timeslot,
+					})
+				}
+			}
+		}
+		
+		// Check if this bridge is active
+		active := time.Since(db.LastActivity) < 5*time.Second
+		
+		dto := DynamicBridgeDTO{
+			TGID:          db.TGID,
+			CreatedAt:     db.CreatedAt.Unix(),
+			LastActivity:  db.LastActivity.Unix(),
+			Subscribers:   subscribers,
+			Active:        active,
+			ActiveRadioID: db.ActiveRadioID,
+		}
+		
+		// If active and we have a user repo, look up user info
+		if active && db.ActiveRadioID != 0 && a.userRepo != nil {
+			if user, err := a.userRepo.GetByRadioID(db.ActiveRadioID); err == nil {
+				dto.ActiveCallsign = user.Callsign
+				dto.ActiveFirstName = user.FirstName
+				dto.ActiveLastName = user.LastName
+				dto.ActiveLocation = user.Location()
+			}
+		}
+		
+		dynamicBridges = append(dynamicBridges, dto)
+	}
+	response["dynamic"] = dynamicBridges
+	
+	return response
+}
+
+// GetTransmissionsData returns transmissions data for WebSocket broadcasting
+func (a *API) GetTransmissionsData(page, perPage int) map[string]interface{} {
+	if a.txRepo == nil {
+		return map[string]interface{}{
+			"transmissions": []TransmissionDTO{},
+			"total":         0,
+		}
+	}
+	
+	transmissions, total, err := a.txRepo.GetRecentPaginated(page, perPage)
+	if err != nil {
+		return map[string]interface{}{
+			"transmissions": []TransmissionDTO{},
+			"total":         0,
+		}
+	}
+	
+	dtos := make([]TransmissionDTO, 0, len(transmissions))
+	for _, tx := range transmissions {
+		dto := TransmissionDTO{
+			ID:          tx.ID,
+			RadioID:     tx.RadioID,
+			TalkgroupID: tx.TalkgroupID,
+			Timeslot:    tx.Timeslot,
+			Duration:    tx.Duration,
+			StartTime:   tx.StartTime.Unix(),
+			EndTime:     tx.EndTime.Unix(),
+			RepeaterID:  tx.RepeaterID,
+			PacketCount: tx.PacketCount,
+		}
+		
+		// Look up callsign if user repo is available
+		if a.userRepo != nil {
+			if user, err := a.userRepo.GetByRadioID(tx.RadioID); err == nil {
+				dto.Callsign = user.Callsign
+			}
+		}
+		
+		dtos = append(dtos, dto)
+	}
+	
+	return map[string]interface{}{
+		"transmissions": dtos,
+		"total":         total,
+	}
+}

@@ -1,106 +1,113 @@
 <template>
   <div>
     <HeaderNav />
-    <h2 class="text-xl font-medium mb-4">Bridge Configuration</h2>
+    
+    <div class="text-h5 q-mb-md">Bridge Configuration</div>
     
     <!-- Static Bridges Section -->
-    <div class="mb-6">
-      <h3 class="text-lg font-medium mb-3 text-gray-700 dark:text-gray-300">Static Bridges</h3>
-      <div v-if="app.bridges.length === 0" class="text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-        No static bridges configured
+    <div class="q-mb-lg">
+      <div class="text-h6 q-mb-md text-grey-8">Static Bridges</div>
+      
+      <div v-if="app.bridges.length === 0">
+        <q-card>
+          <q-card-section class="text-grey-6">
+            No static bridges configured
+          </q-card-section>
+        </q-card>
       </div>
-      <div v-else class="space-y-4">
-        <div 
+      
+      <div v-else class="q-gutter-md">
+        <q-card 
           v-for="bridge in app.bridges" 
           :key="bridge.name"
-          class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-gray-200 dark:border-gray-700"
         >
-          <h3 class="font-semibold text-lg mb-3">{{ bridge.name }}</h3>
-          <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
-              <thead>
-                <tr class="border-b border-gray-200 dark:border-gray-700">
-                  <th class="text-left py-2 px-3">System</th>
-                  <th class="text-left py-2 px-3">TGID</th>
-                  <th class="text-left py-2 px-3">Timeslot</th>
-                  <th class="text-left py-2 px-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr 
-                  v-for="(rule, idx) in bridge.rules" 
-                  :key="idx"
-                  class="border-b border-gray-100 dark:border-gray-700 last:border-0"
-                >
-                  <td class="py-2 px-3">{{ rule.system }}</td>
-                  <td class="py-2 px-3">{{ rule.tgid }}</td>
-                  <td class="py-2 px-3">TS{{ rule.timeslot }}</td>
-                  <td class="py-2 px-3">
-                    <span 
-                      class="inline-block px-2 py-1 text-xs rounded-full"
-                      :class="rule.active ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400'"
-                    >
-                      {{ rule.active ? 'Active' : 'Inactive' }}
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+          <q-card-section>
+            <div class="text-h6 q-mb-md">{{ bridge.name }}</div>
+            
+            <q-table
+              :rows="bridge.rules"
+              :columns="staticBridgeColumns"
+              row-key="system"
+              flat
+              :rows-per-page-options="[0]"
+              hide-pagination
+              dense
+            >
+              <template v-slot:body-cell-status="props">
+                <q-td :props="props">
+                  <q-badge 
+                    :color="props.row.active ? 'positive' : 'grey'"
+                    :label="props.row.active ? 'Active' : 'Inactive'"
+                  />
+                </q-td>
+              </template>
+            </q-table>
+          </q-card-section>
+        </q-card>
       </div>
     </div>
 
     <!-- Dynamic Bridges Section -->
     <div>
-      <h3 class="text-lg font-medium mb-3 text-gray-700 dark:text-gray-300">Dynamic Bridges</h3>
-      <div v-if="app.dynamicBridges.length === 0" class="text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-        No active dynamic bridges
+      <div class="text-h6 q-mb-md text-grey-8">Dynamic Bridges</div>
+      
+      <div v-if="app.dynamicBridges.length === 0">
+        <q-card>
+          <q-card-section class="text-grey-6">
+            No active dynamic bridges
+          </q-card-section>
+        </q-card>
       </div>
-      <div v-else class="space-y-4">
-        <div 
+      
+      <div v-else class="q-gutter-md">
+        <q-card 
           v-for="bridge in app.dynamicBridges" 
           :key="`${bridge.tgid}-${bridge.timeslot}`"
-          class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow border border-blue-200 dark:border-blue-700"
+          bordered
         >
-          <div class="flex items-center justify-between mb-3">
-            <div>
-              <h3 class="font-semibold text-lg">TG {{ bridge.tgid }} - TS{{ bridge.timeslot }}</h3>
-              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Active {{ formatTimestamp(bridge.last_activity) }}
-              </p>
+          <q-card-section>
+            <div class="row items-center justify-between q-mb-md">
+              <div class="col">
+                <div class="text-h6">TG {{ bridge.tgid }} - TS{{ bridge.timeslot }}</div>
+                <div class="text-caption text-grey-6 q-mt-xs">
+                  Active {{ formatTimestamp(bridge.last_activity) }}
+                </div>
+              </div>
+              <div class="col-auto">
+                <q-badge color="info" label="Dynamic" />
+              </div>
             </div>
-            <span class="inline-block px-3 py-1 text-xs font-medium rounded-full bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200">
-              Dynamic
-            </span>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div>
-              <span class="text-gray-500 dark:text-gray-400">Subscribers:</span>
-              <span class="ml-2 font-semibold">{{ bridge.subscribers.length }}</span>
+            
+            <div class="row q-col-gutter-md">
+              <div class="col-12 col-md-4">
+                <div class="text-caption text-grey-6">Subscribers:</div>
+                <div class="text-weight-bold">{{ bridge.subscribers.length }}</div>
+              </div>
+              <div class="col-12 col-md-4">
+                <div class="text-caption text-grey-6">Created:</div>
+                <div class="text-weight-bold">{{ formatTimestamp(bridge.created_at) }}</div>
+              </div>
+              <div class="col-12 col-md-4">
+                <div class="text-caption text-grey-6">Last Activity:</div>
+                <div class="text-weight-bold">{{ formatTimestamp(bridge.last_activity) }}</div>
+              </div>
             </div>
-            <div>
-              <span class="text-gray-500 dark:text-gray-400">Created:</span>
-              <span class="ml-2 font-semibold">{{ formatTimestamp(bridge.created_at) }}</span>
+            
+            <div v-if="bridge.subscribers.length > 0" class="q-mt-md q-pt-md" style="border-top: 1px solid rgba(0,0,0,0.12)">
+              <div class="text-caption text-grey-6 q-mb-sm">Subscriber Peer IDs:</div>
+              <div class="row q-gutter-xs">
+                <q-chip 
+                  v-for="peerId in bridge.subscribers" 
+                  :key="peerId"
+                  dense
+                  size="sm"
+                >
+                  {{ peerId }}
+                </q-chip>
+              </div>
             </div>
-            <div>
-              <span class="text-gray-500 dark:text-gray-400">Last Activity:</span>
-              <span class="ml-2 font-semibold">{{ formatTimestamp(bridge.last_activity) }}</span>
-            </div>
-          </div>
-          <div v-if="bridge.subscribers.length > 0" class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Subscriber Peer IDs:</p>
-            <div class="flex flex-wrap gap-2">
-              <span 
-                v-for="peerId in bridge.subscribers" 
-                :key="peerId"
-                class="inline-block px-2 py-1 text-xs rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300"
-              >
-                {{ peerId }}
-              </span>
-            </div>
-          </div>
-        </div>
+          </q-card-section>
+        </q-card>
       </div>
     </div>
   </div>
@@ -117,6 +124,37 @@ export default {
   setup() {
     const app = useAppStore()
     let intervalId = null
+    
+    const staticBridgeColumns = [
+      {
+        name: 'system',
+        required: true,
+        label: 'System',
+        align: 'left',
+        field: 'system',
+        sortable: true
+      },
+      {
+        name: 'tgid',
+        label: 'TGID',
+        align: 'left',
+        field: 'tgid',
+        sortable: true
+      },
+      {
+        name: 'timeslot',
+        label: 'Timeslot',
+        align: 'left',
+        field: row => `TS${row.timeslot}`,
+        sortable: true
+      },
+      {
+        name: 'status',
+        label: 'Status',
+        align: 'left',
+        field: 'active'
+      }
+    ]
     
     const formatTimestamp = (timestamp) => {
       if (!timestamp) return 'Unknown'
@@ -143,7 +181,7 @@ export default {
       }
     })
     
-    return { app, formatTimestamp }
+    return { app, staticBridgeColumns, formatTimestamp }
   }
 }
 </script>
