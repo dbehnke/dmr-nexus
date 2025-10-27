@@ -1431,6 +1431,8 @@ func connectPeer(conn *net.UDPConn, peerID uint32, callsign string) error {
 	}
 
 	return nil
+}
+
 // Ensure that DMRD packets from peers that are NOT fully connected are ignored
 func TestServer_IgnoreDMRDFromNonConnectedPeer(t *testing.T) {
 	cfg := config.SystemConfig{

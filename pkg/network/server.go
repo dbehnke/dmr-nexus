@@ -51,16 +51,17 @@ type Server struct {
 	// Subscriber location tracking for private calls: radioID -> subscriberLocation
 	subscriberLocations   map[uint32]*subscriberLocation
 	subscriberLocationsMu sync.RWMutex
+
+	// Track rejected peers to avoid sending repeated MSTNAK
+	rejectedPeers   map[string]*rejectedPeer // key: "peerID:addr"
+	rejectedPeersMu sync.Mutex
+	mstNakCooldown  time.Duration
 }
 
 // subscriberLocation tracks where a subscriber (radio) was last seen
 type subscriberLocation struct {
 	peerID   uint32    // Which peer the subscriber is behind
 	lastSeen time.Time // When we last saw traffic from this subscriber
-	// Track rejected peers to avoid sending repeated MSTNAK
-	rejectedPeers   map[string]*rejectedPeer // key: "peerID:addr"
-	rejectedPeersMu sync.Mutex
-	mstNakCooldown  time.Duration
 }
 
 // CleanupMutedStreamsOnce runs a single cleanup pass for mutedStreams (for testing)
@@ -92,16 +93,8 @@ func NewServer(cfg config.SystemConfig, systemName string, log *logger.Logger) *
 		started:             make(chan struct{}),
 		mutedStreams:        make(map[uint32]time.Time),
 		subscriberLocations: make(map[uint32]*subscriberLocation),
-		config:          cfg,
-		systemName:      systemName,
-		log:             log.WithComponent("network.server"),
-		peerManager:     peer.NewPeerManager(),
-		pingTimeout:     30 * time.Second, // Default timeout
-		cleanupInterval: 10 * time.Second, // Default cleanup interval
-		started:         make(chan struct{}),
-		mutedStreams:    make(map[uint32]time.Time),
-		rejectedPeers:   make(map[string]*rejectedPeer),
-		mstNakCooldown:  cooldown,
+		rejectedPeers:       make(map[string]*rejectedPeer),
+		mstNakCooldown:      cooldown,
 	}
 }
 
@@ -1139,6 +1132,24 @@ func (s *Server) cleanupLoop(ctx context.Context) error {
 				}
 			}
 
+			// Cleanup expired rejected peers (cooldown + grace period expired)
+			s.rejectedPeersMu.Lock()
+			expiredKeys := make([]string, 0)
+			cleanupThreshold := s.mstNakCooldown + (5 * time.Minute) // Keep for cooldown + 5 minutes
+			for key, rejected := range s.rejectedPeers {
+				if now.Sub(rejected.lastMSTNAK) > cleanupThreshold {
+					expiredKeys = append(expiredKeys, key)
+				}
+			}
+			for _, key := range expiredKeys {
+				delete(s.rejectedPeers, key)
+			}
+			s.rejectedPeersMu.Unlock()
+			if len(expiredKeys) > 0 {
+				s.log.Debug("Cleaned up expired rejected peers",
+					logger.Int("count", len(expiredKeys)))
+			}
+
 			// Cleanup stale subscriber locations (not seen for 15 minutes)
 			s.cleanupStaleSubscriberLocations(15 * time.Minute)
 		}
@@ -1207,23 +1218,6 @@ func (s *Server) clearSubscriberLocationsForPeer(peerID uint32) {
 	for radioID, loc := range s.subscriberLocations {
 		if loc.peerID == peerID {
 			delete(s.subscriberLocations, radioID)
-			// Cleanup expired rejected peers (cooldown + grace period expired)
-			s.rejectedPeersMu.Lock()
-			expiredKeys := make([]string, 0)
-			cleanupThreshold := s.mstNakCooldown + (5 * time.Minute) // Keep for cooldown + 5 minutes
-			for key, rejected := range s.rejectedPeers {
-				if now.Sub(rejected.lastMSTNAK) > cleanupThreshold {
-					expiredKeys = append(expiredKeys, key)
-				}
-			}
-			for _, key := range expiredKeys {
-				delete(s.rejectedPeers, key)
-			}
-			s.rejectedPeersMu.Unlock()
-			if len(expiredKeys) > 0 {
-				s.log.Debug("Cleaned up expired rejected peers",
-					logger.Int("count", len(expiredKeys)))
-			}
 		}
 	}
 }
