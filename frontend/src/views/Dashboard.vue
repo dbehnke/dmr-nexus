@@ -45,7 +45,7 @@
           class="col-6 col-sm-4 col-md-3 col-lg-2"
         >
           <q-card 
-            :class="bridge.active ? 'bg-red-1' : 'bg-green-1'"
+            :style="bridge.active ? 'background-color: rgba(244, 67, 54, 0.15)' : 'background-color: rgba(76, 175, 80, 0.15)'"
             bordered
           >
             <q-card-section class="q-pa-sm">
@@ -61,7 +61,7 @@
                       </a>
                     </div>
                     <div v-if="bridge.active_callsign" class="text-caption text-weight-medium">
-                      <a :href="`https://www.qrz.com/db/${bridge.active_callsign}`" target="_blank" rel="noopener noreferrer" class="text-dark">
+                      <a :href="`https://www.qrz.com/db/${bridge.active_callsign}`" target="_blank" rel="noopener noreferrer">
                         {{ bridge.active_callsign }}
                       </a>
                     </div>

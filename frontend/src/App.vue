@@ -24,7 +24,7 @@
       </q-page>
     </q-page-container>
   
-    <q-footer class="bg-white text-grey-8">
+    <q-footer>
       <div class="q-pa-md text-center">
         <div>© 2025 DMR Nexus. {{ store.version }}</div>
         <div class="q-mt-xs">Made with ❤️ in Macomb, MI</div>
