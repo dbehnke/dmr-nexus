@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
-/* Custom theme colors */
 @theme {
+  /* Enable class-based dark mode */
+  --color-scheme: light dark;
+  
+  /* Custom primary colors */
   --color-primary-50: oklch(0.97 0.01 227);
   --color-primary-100: oklch(0.93 0.03 227);
   --color-primary-200: oklch(0.86 0.06 227);
@@ -14,6 +17,8 @@
   --color-primary-900: oklch(0.29 0.10 227);
   --color-primary-950: oklch(0.21 0.06 227);
 }
+
+@variant dark (.dark &);
 
 /* Custom styles */
 body {
