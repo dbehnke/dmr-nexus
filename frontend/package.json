@@ -9,7 +9,7 @@
     "serve": "vite preview --port 5173"
   },
   "dependencies": {
-    "axios": "^1.4.0",
+    "axios": "^1.13.0",
     "pinia": "^3.0.3",
     "vue": "^3.3.0",
     "vue-router": "^4.2.0"
