@@ -2,57 +2,48 @@
   <div>
     <HeaderNav />
     
-    <div class="row items-center justify-between q-mb-md">
-      <div class="col-auto">
-        <div class="text-h5">Activity Log</div>
-      </div>
-      <div class="col-auto">
-        <div class="row items-center q-gutter-xs">
-          <q-icon 
-            :name="connected ? 'circle' : 'circle'" 
-            :color="connected ? 'positive' : 'negative'"
-            size="xs"
-          />
-          <span class="text-caption text-grey-6">
-            {{ connected ? 'Live' : 'Disconnected' }}
-          </span>
-        </div>
+    <div class="flex items-center justify-between mb-6">
+      <h2 class="text-2xl font-bold">Activity Log</h2>
+      <div class="flex items-center gap-2">
+        <div 
+          class="w-2 h-2 rounded-full"
+          :class="connected ? 'bg-green-500' : 'bg-red-500'"
+        ></div>
+        <span class="text-sm text-gray-600 dark:text-gray-400">
+          {{ connected ? 'Live' : 'Disconnected' }}
+        </span>
       </div>
     </div>
     
     <div v-if="app.activity.length === 0">
-      <q-card>
-        <q-card-section class="text-grey-6">
-          No activity yet
-        </q-card-section>
-      </q-card>
+      <div class="card p-6 text-center text-gray-500 dark:text-gray-400">
+        No activity yet
+      </div>
     </div>
     
-    <div v-else class="q-gutter-sm">
-      <q-card 
+    <div v-else class="space-y-2">
+      <div 
         v-for="(event, i) in app.activity" 
         :key="i"
-        flat
-        bordered
+        class="card p-3"
       >
-        <q-card-section class="q-pa-sm">
-          <div class="row items-start justify-between">
-            <div class="col">
-              <q-badge 
-                :color="getEventTypeColor(event.type)"
-                :label="event.type"
-                class="q-mr-sm"
-              />
-              <span class="text-body2">{{ formatEventData(event) }}</span>
-            </div>
-            <div class="col-auto">
-              <span class="text-caption text-grey-6">
-                {{ formatTime(event.timestamp) }}
-              </span>
-            </div>
+        <div class="flex items-start justify-between">
+          <div class="flex-1">
+            <span 
+              class="inline-block px-2 py-1 rounded text-xs font-medium mr-2"
+              :class="getEventTypeClass(event.type)"
+            >
+              {{ event.type }}
+            </span>
+            <span class="text-sm">{{ formatEventData(event) }}</span>
           </div>
-        </q-card-section>
-      </q-card>
+          <div>
+            <span class="text-xs text-gray-500 dark:text-gray-400">
+              {{ formatTime(event.timestamp) }}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -74,13 +65,13 @@ export default {
       app.fetchActivity().catch(() => {})
     })
     
-    const getEventTypeColor = (type) => {
-      const colors = {
-        'peer_connected': 'positive',
-        'peer_disconnected': 'negative',
-        'heartbeat': 'info',
+    const getEventTypeClass = (type) => {
+      const classes = {
+        'peer_connected': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+        'peer_disconnected': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+        'heartbeat': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
       }
-      return colors[type] || 'grey'
+      return classes[type] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
     }
     
     const formatEventData = (event) => {
@@ -102,7 +93,7 @@ export default {
       return date.toLocaleTimeString()
     }
     
-    return { app, connected, getEventTypeColor, formatEventData, formatTime }
+    return { app, connected, getEventTypeClass, formatEventData, formatTime }
   }
 }
 </script>

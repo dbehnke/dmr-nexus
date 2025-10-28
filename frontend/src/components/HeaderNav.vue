@@ -1,40 +1,53 @@
 <template>
-  <q-tabs
-    v-model="tab"
-    dense
-    class="text-grey-7 q-mb-md"
-    active-color="primary"
-    indicator-color="primary"
-    align="left"
-  >
-    <q-route-tab name="dashboard" to="/" label="Dashboard" />
-    <q-route-tab name="peers" to="/peers" label="Peers" />
-    <q-route-tab name="bridges" to="/bridges" label="Bridges" />
-    <q-route-tab name="activity" to="/activity" label="Activity" />
-    <q-route-tab name="settings" to="/settings" label="Settings" />
-  </q-tabs>
+  <nav class="border-b border-gray-200 dark:border-gray-700 mb-6">
+    <div class="flex gap-1">
+      <router-link 
+        to="/" 
+        class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+        :class="route.path === '/' ? 'bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'"
+      >
+        Dashboard
+      </router-link>
+      <router-link 
+        to="/peers" 
+        class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+        :class="route.path.startsWith('/peers') ? 'bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'"
+      >
+        Peers
+      </router-link>
+      <router-link 
+        to="/bridges" 
+        class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+        :class="route.path.startsWith('/bridges') ? 'bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'"
+      >
+        Bridges
+      </router-link>
+      <router-link 
+        to="/activity" 
+        class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+        :class="route.path.startsWith('/activity') ? 'bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'"
+      >
+        Activity
+      </router-link>
+      <router-link 
+        to="/settings" 
+        class="px-4 py-2 text-sm font-medium rounded-t-lg transition-colors"
+        :class="route.path.startsWith('/settings') ? 'bg-white dark:bg-gray-800 text-primary-600 dark:text-primary-400 border-b-2 border-primary-600' : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'"
+      >
+        Settings
+      </router-link>
+    </div>
+  </nav>
 </template>
 
 <script>
-import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 
 export default {
   name: 'HeaderNav',
   setup() {
     const route = useRoute()
-    const tab = ref('dashboard')
-    
-    // Update tab based on current route
-    watch(() => route.path, (newPath) => {
-      if (newPath === '/') tab.value = 'dashboard'
-      else if (newPath.startsWith('/peers')) tab.value = 'peers'
-      else if (newPath.startsWith('/bridges')) tab.value = 'bridges'
-      else if (newPath.startsWith('/activity')) tab.value = 'activity'
-      else if (newPath.startsWith('/settings')) tab.value = 'settings'
-    }, { immediate: true })
-    
-    return { tab }
+    return { route }
   }
 }
 </script>

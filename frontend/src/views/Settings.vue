@@ -2,27 +2,32 @@
   <div>
     <HeaderNav />
     
-    <div class="text-h5 q-mb-md">Settings</div>
+    <h2 class="text-2xl font-bold mb-6">Settings</h2>
     
-    <q-card>
-      <q-card-section>
-        <div class="text-h6 q-mb-md">Appearance</div>
-        
-        <q-option-group
-          v-model="store.theme"
-          :options="themeOptions"
-          color="primary"
-          @update:model-value="store.setTheme"
+    <div class="card p-6">
+      <h3 class="text-lg font-bold mb-4">Appearance</h3>
+      
+      <div class="space-y-3">
+        <label 
+          v-for="option in themeOptions" 
+          :key="option.value"
+          class="flex items-start gap-3 p-3 rounded-lg border-2 cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-700"
+          :class="store.theme === option.value ? 'border-primary-600 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-gray-700'"
         >
-          <template v-slot:label="opt">
-            <div>
-              <div class="text-weight-medium">{{ opt.label }}</div>
-              <div class="text-caption text-grey-6">{{ opt.caption }}</div>
-            </div>
-          </template>
-        </q-option-group>
-      </q-card-section>
-    </q-card>
+          <input 
+            type="radio" 
+            :value="option.value"
+            :checked="store.theme === option.value"
+            @change="store.setTheme(option.value)"
+            class="mt-1"
+          />
+          <div class="flex-1">
+            <div class="font-medium">{{ option.label }}</div>
+            <div class="text-sm text-gray-600 dark:text-gray-400">{{ option.caption }}</div>
+          </div>
+        </label>
+      </div>
+    </div>
   </div>
 </template>
 
