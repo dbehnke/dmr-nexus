@@ -1,6 +1,5 @@
 import { defineStore } from 'pinia'
 import axios from 'axios'
-import { Dark } from 'quasar'
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -67,10 +66,11 @@ export const useAppStore = defineStore('app', {
       this.applyTheme()
     },
     applyTheme() {
-      if (this.theme === 'system') {
-        Dark.set('auto')
+      const isDark = this.isDark
+      if (isDark) {
+        document.documentElement.classList.add('dark')
       } else {
-        Dark.set(this.isDark)
+        document.documentElement.classList.remove('dark')
       }
     },
     initTheme() {
