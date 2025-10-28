@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/dbehnke/dmr-nexus/compare/v0.5.0...v0.6.0) (2025-10-28)
+
+
+### Features
+
+* **frontend:** Replace Quasar with Tailwind CSS v4 ([#67](https://github.com/dbehnke/dmr-nexus/issues/67)) ([abcb463](https://github.com/dbehnke/dmr-nexus/commit/abcb463ebc4375f64b276a15e56f984155b7fa09))
+
 ## [0.5.0](https://github.com/dbehnke/dmr-nexus/compare/v0.4.0...v0.5.0) (2025-10-27)
 
 
