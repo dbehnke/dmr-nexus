@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/dbehnke/dmr-nexus/compare/v0.6.0...v0.6.1) (2025-10-29)
+
+
+### Bug Fixes
+
+* prevent pre-release workflow from running on release commits ([#71](https://github.com/dbehnke/dmr-nexus/issues/71)) ([df7b67d](https://github.com/dbehnke/dmr-nexus/commit/df7b67dfe48366c9cbb590ae241cc6ba4bab3507))
+
 ## [0.6.0](https://github.com/dbehnke/dmr-nexus/compare/v0.5.0...v0.6.0) (2025-10-28)
 
 
