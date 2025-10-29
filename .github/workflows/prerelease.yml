@@ -26,17 +26,33 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
+      # Skip if this is a release commit from release-please
+      - name: Check if release commit
+        id: check_release
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -q "^chore(main): release"; then
+            echo "is_release=true" >> $GITHUB_OUTPUT
+            echo "This is a release commit, skipping pre-release creation"
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+            echo "This is not a release commit, proceeding with pre-release"
+          fi
+
       - name: Set up Go
+        if: steps.check_release.outputs.is_release != 'true'
         uses: actions/setup-go@v6
         with:
           go-version: '1.25.3'
 
       - name: Set up Node.js
+        if: steps.check_release.outputs.is_release != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: '20'
 
       - name: Cache Node modules
+        if: steps.check_release.outputs.is_release != 'true'
         uses: actions/cache@v4
         with:
           path: frontend/node_modules
@@ -45,10 +61,12 @@ jobs:
             ${{ runner.os }}-node-
 
       - name: Install frontend dependencies
+        if: steps.check_release.outputs.is_release != 'true'
         working-directory: ./frontend
         run: npm ci
 
       - name: Generate semantic version tag
+        if: steps.check_release.outputs.is_release != 'true'
         id: tag
         env:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -68,7 +86,7 @@ jobs:
           # Increment patch version for pre-release
           NEXT_PATCH=$((PATCH + 1))
           
-          # Create semantic version pre-release tag: v0.1.1-pre.20251026171047.e961141
+          # Create semantic version pre-release tag: v0.6.1-pre.20251026171047.e961141
           TAG="v${MAJOR}.${MINOR}.${NEXT_PATCH}-pre.${TIMESTAMP}.${SHA}"
           
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
@@ -76,6 +94,7 @@ jobs:
           echo "Generated pre-release tag: ${TAG}"
 
       - name: Create and push tag for GoReleaser
+        if: steps.check_release.outputs.is_release != 'true'
         env:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
@@ -85,6 +104,7 @@ jobs:
           git push origin "$TAG"
 
       - name: Run GoReleaser to build and create pre-release
+        if: steps.check_release.outputs.is_release != 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
