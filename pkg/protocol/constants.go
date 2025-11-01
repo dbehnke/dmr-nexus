@@ -78,3 +78,23 @@ const (
 	CallTypeGroup   = 0 // Group/talkgroup call
 	CallTypePrivate = 1 // Unit-to-unit/private call
 )
+
+// FLCO (Full Link Control Opcode) type for DMR
+type FLCO byte
+
+const (
+	FLCOGroup    FLCO = 0x00 // Group call
+	FLCOUserUser FLCO = 0x03 // Private call (user to user)
+)
+
+// String returns a string representation of the FLCO type
+func (f FLCO) String() string {
+	switch f {
+	case FLCOGroup:
+		return "TG"
+	case FLCOUserUser:
+		return "Private"
+	default:
+		return "Unknown"
+	}
+}
