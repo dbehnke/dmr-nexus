@@ -6,8 +6,8 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/viper v1.21.0
 	gorm.io/driver/sqlite v1.6.0
-	gorm.io/gorm v1.31.0
-	modernc.org/sqlite v1.39.1
+	gorm.io/gorm v1.31.1
+	modernc.org/sqlite v1.40.0
 )
 
 require (
