@@ -32,7 +32,7 @@ jobs:
         run: go version
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           # The action will run the `run` subcommand; only pass flags here.
           args: --timeout=10m
