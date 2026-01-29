@@ -12,7 +12,7 @@
     "axios": "^1.13.2",
     "pinia": "^3.0.4",
     "vue": "^3.3.0",
-    "vue-router": "^4.2.0"
+    "vue-router": "^5.0.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.9",
