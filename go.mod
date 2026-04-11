@@ -1,13 +1,13 @@
 module github.com/dbehnke/dmr-nexus
 
-go 1.25.3
+go 1.26.2
 
 require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/spf13/viper v1.21.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
-	modernc.org/sqlite v1.40.0
+	modernc.org/sqlite v1.40.1
 )
 
 require (
