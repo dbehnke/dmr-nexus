@@ -39,6 +39,7 @@ jobs:
           # Use latest stable golangci-lint
           version: v2.11.4
           install-mode: binary
+          skip-cache: true
 
       - name: Run tests
         run: make test
