@@ -36,8 +36,8 @@ jobs:
         with:
           # The action will run the `run` subcommand; only pass flags here.
           args: --timeout=10m
-          # Use golangci-lint v2.6.0 (minimum version built with Go 1.26+)
-          version: v2.6.0
+          # Use latest stable golangci-lint
+          version: v2.11.4
           install-mode: binary
 
       - name: Run tests
