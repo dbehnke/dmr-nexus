@@ -66,3 +66,4 @@ dmr-nexus
 *.db-shm
 *.db-wal
 data/
+ysf2dmr.yaml

@@ -2,6 +2,7 @@
 
 # Variables
 BINARY_NAME=dmr-nexus
+YSF2DMR_BINARY=ysf2dmr
 BUILD_DIR=bin
 FRONTEND_DIR=frontend
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -21,8 +22,23 @@ help:
 	@echo "Available targets:"
 	@awk 'BEGIN {FS = ":.*##"; printf "\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  $(BLUE)%-15s$(NC) %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-## build: Build the application binary
-build: deps
+## build: Build all application binaries (dmr-nexus and ysf2dmr)
+build: build-dmr-nexus build-ysf2dmr
+
+## build-dmr-nexus: Build the dmr-nexus binary
+build-dmr-nexus: deps
+	@echo "$(BLUE)Building $(BINARY_NAME)...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	@CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/dmr-nexus
+
+## build-ysf2dmr: Build the ysf2dmr binary
+build-ysf2dmr: deps
+	@echo "$(BLUE)Building $(YSF2DMR_BINARY)...$(NC)"
+	@mkdir -p $(BUILD_DIR)
+	@CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(YSF2DMR_BINARY) ./cmd/ysf2dmr
+
+## build-old: Build just the dmr-nexus binary (deprecated, use build-dmr-nexus)
+build-old: deps
 	@echo "$(BLUE)Building $(BINARY_NAME)...$(NC)"
 	@mkdir -p $(BUILD_DIR)
 	@CGO_ENABLED=0 go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/dmr-nexus
